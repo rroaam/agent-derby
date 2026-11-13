@@ -10,6 +10,9 @@
   ],
   "page": {
     "layout": "auto",
+    "horseStyle": "dots",
+    "palette": "lanes",
+    "crtOverlay": 0.15,
     "title": "AGENT DERBY",
     "theme": { "background": "#000000", "ink": "#ECE9E2" },
     "horses": ["chrome", "thermal", "type", "dots", "glass", "leopard", "cobalt", "glitter"],

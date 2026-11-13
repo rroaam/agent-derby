@@ -100,10 +100,13 @@ Everything lives in `derby.config.json`. Every key is optional.
 | `watch` | `[]` | Processes to show as horses: `agent` (id), `name`, `task`, `match` (part of the command line). |
 | `testflight` | off | Read-only TestFlight build status, see above. |
 | `page.layout` | `"auto"` | `"auto"`, `"32x9"` or `"4x3"`. A `?layout=` in the address wins. |
+| `page.horseStyle` | `"dots"` | `dots`, `dither`, `ascii`, `pixels` or `classic`. See Looks below. |
+| `page.palette` | `"lanes"` | `lanes` (a color per lane), `amber`, `green`, `white`, `ice`, or one 6-digit hex color. |
+| `page.crtOverlay` | `0.15` | CRT layer strength, 0 (off) to 1. Defaults to 0.25 on the 4:3 layout. |
 | `page.title` | `"AGENT DERBY"` | Text in the footer. |
 | `page.theme.background` | `"#000000"` | Background color (6-digit hex). |
 | `page.theme.ink` | `"#ECE9E2"` | Text and track color (6-digit hex). |
-| `page.horses` | all 8 | Horse styles, lane by lane, repeating if shorter: `chrome`, `thermal`, `type`, `dots`, `glass`, `leopard`, `cobalt`, `glitter`. |
+| `page.horses` | all 8 | Textures for the `classic` look, lane by lane, repeating if shorter: `chrome`, `thermal`, `type`, `dots`, `glass`, `leopard`, `cobalt`, `glitter`. |
 | `page.track.lines` | `true` | Draw the track lines and distance posts. |
 | `page.track.reflections` | `true` | Draw the horses' reflections. |
 | `page.track.dust` | `true` | Kick up dust at a gallop. |
@@ -113,9 +116,27 @@ Everything lives in `derby.config.json`. Every key is optional.
 
 The page reads the `page` section from the bridge at `/config` when it loads, so reload it after changing settings. The bridge itself needs a restart for the other keys.
 
+## Looks
+
+The horses are drawn in one of five looks. Press V on the page to flip through them, or pick one in settings:
+
+- **dots** (the default): glowing LED dots with a soft bloom.
+- **dither**: 1-bit ordered dither, like an old Mac screen.
+- **ascii**: the horse built from text characters, brighter parts in denser characters.
+- **pixels**: chunky pixels in four shades.
+- **classic**: the original textured horses.
+
+The state shows in the light itself. A done horse thins out to a few dim, twinkling dots. A working horse fills in. A horse at full sprint glows brightest and leaves a trail of points behind it. A soft CRT layer (scanlines, a vignette, a slow rolling band and a faint flicker) sits over everything at about 15%, a bit heavier on the 4:3 layout.
+
+The gallop follows the footfall order Eadweard Muybridge recorded in his 1878 photographs *The Horse in Motion* (public domain): hind, hind, fore, fore, then all four feet off the ground with the legs gathered under the body. The horse is drawn by code from that timing; no photographs or other artwork are copied.
+
+If the page runs slowly (a Raspberry Pi, a very large screen), it drops the bloom and reflections first, then uses coarser cells, and comes back up when frames are fast again.
+
+![The five looks](docs/looks.png)
+
 ## Address options
 
-`?layout=4x3|wide|auto`, `?lanes=1-8` (minimum lanes), `?demo=0` (freeze the demo), `?live=1` (poll a bridge when served over https).
+`?layout=4x3|wide|auto`, `?style=dots|dither|ascii|pixels|classic`, `?palette=amber`, `?crt=0.3`, `?lanes=1-8` (minimum lanes), `?demo=0` (freeze the demo), `?live=1` (poll a bridge when served over https).
 
 ## Privacy
 
