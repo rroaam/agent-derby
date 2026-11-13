@@ -145,3 +145,6 @@ Everything runs on your own computer. The bridge listens on 127.0.0.1 only unles
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+## Improving the visuals with Claude Code
+This folder is set up for Claude Code. `CLAUDE.md` holds the project rules, `docs/STYLE.md` the art direction and `docs/MOTION.md` the motion rules. `npm run qa` takes headless screenshots and motion contact sheets into `docs/qa/`, and two review agents (`design-critic`, `motion-reviewer`) judge them. Start a session with `claude --model claude-fable-5-2` and paste the prompt in `docs/START-PROMPT.md`.

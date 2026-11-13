@@ -1,0 +1,11 @@
+{
+  "name": "agent-derby",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "qa": "node qa/shoot.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.49.1"
+  }
+}

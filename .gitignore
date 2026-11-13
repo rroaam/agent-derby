@@ -3,3 +3,4 @@ derby.config.json
 *.derby-backup-*
 .DS_Store
 node_modules/
+docs/qa/
