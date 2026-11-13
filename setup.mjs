@@ -19,7 +19,7 @@ const args = process.argv.slice(2).map(a => a.toLowerCase());
 const removing = args.includes('remove');
 const only = args.find(a => a === 'claude' || a === 'cursor' || a === 'desktop');
 
-for (const f of ['hook.sh', 'derby-run.sh', 'derby-mcp.mjs', 'xcode-build-failed.sh', 'xcode-build-succeeded.sh']) {
+for (const f of ['hook.sh', 'derby-run.sh', 'autostart.sh', 'derby-mcp.mjs', 'xcode-build-failed.sh', 'xcode-build-succeeded.sh']) {
   try { fs.chmodSync(path.join(DIR, f), 0o755); } catch { /* fine */ }
 }
 if (!HOOK.includes(MARK)) {

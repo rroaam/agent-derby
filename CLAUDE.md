@@ -6,7 +6,7 @@ Agent Derby is a screensaver page (`index.html`, one file, Canvas 2D, no build s
 - **Never** push, merge, deploy, publish, or install anything globally without asking the owner first. Local commits on a branch are fine.
 - **Never** read, print or edit `derby.config.json`, `.env`, or any key file (`.p8`, `.p12`, `.pem`, `.mobileprovision`).
 - Real data only. Demo horses appear only when no bridge is reachable, and are always labeled DEMO. Never fake a live agent.
-- No drop shadows. No copied artwork: references set direction only. The gallop is drawn by code from Muybridge's 1878 timing (public domain).
+- No drop shadows. No copied artwork: references set direction only. The gallop plays silhouettes traced from Muybridge's 1878 photographs (public domain, credited in the README); the trot and stand are drawn by code.
 - Keep `index.html` a single self-contained file that works from `file://`, from the bridge, and inside Plash or WebViewScreenSaver.
 - Performance budget: 60 fps at 5120x1440 on a Mac mini, and a Raspberry Pi 4 at 1024x768 must stay smooth (degrade, never stutter). Keep the frame-time watchdog working.
 - Keep these working: `?layout=`, `?style=`, `?palette=`, `?crt=`, `?lanes=`, `?demo=0`, the V/D/F/C/H keys, and the `page` settings read from the bridge's `/config`.

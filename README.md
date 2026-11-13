@@ -15,6 +15,7 @@ A horse race for your AI coding agents. Every agent gets a lane. A horse that's 
 | `hook.sh` | The hook that Claude Code and Cursor call to report status. |
 | `setup.mjs` | Adds or removes the hooks for you. It backs up each settings file first. |
 | `derby-run.sh` | Wraps any command so it shows up as a horse while it runs. |
+| `autostart.sh` | macOS: starts the bridge at login and restarts it if it stops. `on`, `off`, `status`. |
 | `derby-mcp.mjs` | Optional read-only MCP server so the Claude desktop app can read the bridge's status. |
 | `xcode-build-*.sh` | Optional Xcode behaviors for build started and finished. |
 | `derby.config.example.json` | Every setting, with defaults. Copy it to `derby.config.json`. |
@@ -29,6 +30,18 @@ node bridge.mjs
 ```
 
 Open http://127.0.0.1:4777/. Until an agent reports in, lanes show as open. Open `index.html` straight from disk and you get labeled demo horses instead.
+
+### Start at login (macOS)
+
+Stop the bridge you started by hand first (Control+C), since only one can use the port. Then:
+
+```sh
+~/agent-derby/autostart.sh on       # start now, at every login, and again if it stops
+~/agent-derby/autostart.sh status   # is it on, and is the page answering?
+~/agent-derby/autostart.sh off      # stop it and remove the login item
+```
+
+It writes a LaunchAgent at `~/Library/LaunchAgents/com.agentderby.bridge.plist` using whichever `node` is on your PATH, and logs to `bridge.log` in the folder. Run `on` again after editing `derby.config.json` or switching Node versions.
 
 ## Hook up your agents
 
@@ -128,7 +141,7 @@ The horses are drawn in one of five looks. Press V on the page to flip through t
 
 The state shows in the light itself. A done horse thins out to a few dim, twinkling dots. A working horse fills in. A horse at full sprint glows brightest and leaves a trail of points behind it. A soft CRT layer (scanlines, a vignette, a slow rolling band and a faint flicker) sits over everything at about 15%, a bit heavier on the 4:3 layout.
 
-The gallop follows the footfall order Eadweard Muybridge recorded in his 1878 photographs *The Horse in Motion* (public domain): hind, hind, fore, fore, then all four feet off the ground with the legs gathered under the body. The horse is drawn by code from that timing; no photographs or other artwork are copied.
+The gallop is traced from Eadweard Muybridge's 1878 photographs *The Horse in Motion* (Sallie Gardner at a gallop, Palo Alto, 19 June 1878). The scan used is the Library of Congress copy on Wikimedia Commons, which is in the public domain. Each of the 11 gallop frames was cut out, the rider removed, and the outline stored inside the page as plain shape data, so every look (dots, dither, ascii, pixels, classic) is drawn from Muybridge's horse. The trot and the resting horse are still drawn by code. Credit: Eadweard Muybridge, *The Horse in Motion*, 1878.
 
 If the page runs slowly (a Raspberry Pi, a very large screen), it drops the bloom and reflections first, then uses coarser cells, and comes back up when frames are fast again.
 

@@ -6,7 +6,7 @@ Written from a mood board of digital, pixel and LED horses. The board set the di
 This hangs on a 49-inch screen in a design studio for hours. It should read like a premium piece of generative art, the kind a Swiss type studio would make: few elements, exact spacing, one idea executed perfectly. If a frame looks like a tech demo, a filter, or a default effect, it fails.
 
 ## The idea
-The horse is built from light. A precise grid of light points sampled from a moving, well-drawn silhouette. The silhouette must be anatomically right first (head, neck, withers, barrel, legs with real joints, hooves), because no render style can rescue a bad shape.
+The horse is built from light. A precise grid of light points sampled from a moving, well-drawn silhouette. The silhouette must be anatomically right first (head, neck, withers, barrel, legs with real joints, hooves), because no render style can rescue a bad shape. The gallop silhouette is traced from Eadweard Muybridge's 1878 photographs *The Horse in Motion* (public domain, credited in the README); the trot and the standing horse are drawn by code.
 
 ## Looks, in priority order
 1. **Pixels (hero, default once it passes).** A deliberate sprite, not a downsample. Rules: a fixed integer grid that never shimmers between frames; clean, readable outline with no orphan pixels or broken legs; 3 to 4 tones per horse from one hue (shadow, body, light, rare highlight); the light comes from one side consistently; legs stay at least 2 cells wide and never disconnect; the head and ear read at a glance. Think of the best hand-made sprite work, achieved procedurally.

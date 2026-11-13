@@ -3,7 +3,7 @@
 Motion quality matters more than any render effect. A beautifully lit horse that moves wrong looks cheap.
 
 ## Source of truth
-Eadweard Muybridge, *The Horse in Motion* (1878, public domain). Use the published sequence for footfall order, leg angles and timing. If the photographs are available locally, study them; never trace them into the repo as artwork.
+Eadweard Muybridge, *The Horse in Motion* (1878, public domain). Use the published sequence for footfall order, leg angles and timing. The gallop already plays 11 silhouettes traced from these photographs (the `MUY` block in the page, credited in the README); keep them. Don't add any other traced artwork.
 
 ## Gaits
 - **Stand (done):** weight on all four, slight idle life: a breath (2 to 4 s cycle, 1 to 2% body rise), an occasional head dip or ear flick every 6 to 12 s, a weight shift. Never perfectly still, never twitchy.
