@@ -1,0 +1,1033 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Agent Derby</title></head><body>
+<title>Agent Derby</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Archivo+Black&display=swap">
+<style>
+/* Style brief: a night track seen as a gallery wall. Pure black ground, a black-glass floor
+   that mirrors each runner, hairline rails, race-program labels in a quiet mono.
+   Each horse is a sculpted silhouette wearing its own material, the only colour on screen.
+   Layout: one lane per agent across the full 32:9 width; post column at left, track to the right. */
+:root {
+  --bg: #000000;
+  --ink: #ECE9E2;
+  --ink-dim: rgba(236, 233, 226, 0.42);
+  --rule: rgba(236, 233, 226, 0.14);
+  --panel: #0B0B0C;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+html, body { height: 100%; margin: 0; background: var(--bg); color: var(--ink); overflow: hidden; }
+body.idle, body.idle canvas { cursor: none; }
+#stage { position: fixed; inset: 0; width: 100%; height: 100%; display: block; background: var(--bg); }
+#help {
+  position: fixed;
+  right: max(16px, env(safe-area-inset-right, 0px));
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 56px);
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 18px 20px;
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  font: 12px/1.7 var(--font-mono);
+  color: var(--ink-dim);
+  letter-spacing: 0.01em;
+}
+#help h2 { margin: 0 0 8px; font: 500 11px/1.4 var(--font-mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink); }
+#help dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 16px; margin: 0; }
+#help dt { color: var(--ink); white-space: nowrap; }
+#help dd { margin: 0; min-width: 0; }
+#help p { margin: 10px 0 0; }
+</style>
+
+<canvas id="stage" aria-label="Agent Derby: one horse per agent. Resting horses stand, working horses trot, busy horses gallop."></canvas>
+
+<div id="help" hidden role="dialog" aria-label="Controls">
+  <h2>Controls</h2>
+  <dl>
+    <dt>Click a lane</dt><dd>Cycle that horse: done, working, full sprint</dd>
+    <dt>1 – 8</dt><dd>Pick a horse</dd>
+    <dt>R · W · S</dt><dd>Set it to done, working or full sprint</dd>
+    <dt>Shift + R · W · S</dt><dd>Set every horse</dd>
+    <dt>D</dt><dd>Pause or resume the test simulation</dd>
+    <dt>F</dt><dd>Fullscreen</dd>
+    <dt>C</dt><dd>Show your Claude Code sessions (on claude.ai)</dd>
+    <dt>H</dt><dd>Hide this panel</dd>
+  </dl>
+  <p>Link endings #sprint, #work, #rest and #mixed lock every lane for review. Run locally, ?state=sprint,work,rest,… sets lanes one by one.</p>
+</div>
+
+<script>
+(() => {
+'use strict';
+const cv = document.getElementById('stage');
+const ctx = cv.getContext('2d');
+const helpEl = document.getElementById('help');
+const TAU = Math.PI * 2, D2R = Math.PI / 180;
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const lerp = (a, b, t) => a + (b - a) * t;
+const ease = u => u * u * (3 - 2 * u);
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function rng(seed) { let a = seed | 0; return () => { a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const rnd = rng(20261105);
+
+/* ---------- agents (test data) ---------- */
+const STATE_ORDER = ['rest', 'work', 'sprint'];
+const STATE_LABEL = { rest: 'Done', work: 'Working', sprint: 'Full sprint' };
+const ROSTER = ['chrome', 'thermal', 'type', 'dots', 'glass', 'leopard', 'cobalt', 'glitter']
+  .map((skin, i) => ({ name: 'Demo ' + (i + 1), task: 'sample data, not an agent', skin }));
+const START = ['sprint', 'work', 'rest', 'work', 'sprint', 'rest', 'work', 'rest'];
+
+const params = new URLSearchParams(location.search);
+// Layout: 32:9 by default; a chunky 4:3 "tv" layout for tube TVs and old iMacs (?layout=4x3, or on its own when the screen is squarish).
+let LAYOUT = (params.get('layout') || 'auto').toLowerCase();
+const isTV = () => LAYOUT === '4x3' || LAYOUT === 'tv' || (LAYOUT === 'auto' && innerWidth / Math.max(1, innerHeight) < 1.5);
+
+/* ---------- settings ----------
+   The bridge serves the "page" section of derby.config.json at /config. Every key is optional;
+   README.md lists them all. A saved copy of the page with no bridge uses these defaults. */
+const CFG = { title: 'AGENT DERBY', background: '#000000', ink: '#ECE9E2', horses: null,
+  track: { lines: true, reflections: true, dust: true }, labels: { showTask: true, showTimer: true, rename: {} } };
+let INK = '236,233,226';
+const ink = a => `rgba(${INK},${a})`;
+const hexRGB = h => { const m = /^#?([0-9a-f]{6})$/i.exec(String(h || '')); if (!m) return null; const n = parseInt(m[1], 16); return `${n >> 16},${n >> 8 & 255},${n & 255}`; };
+function applyConfig(c) {
+  if (!c || typeof c !== 'object') return;
+  if (typeof c.title === 'string') CFG.title = c.title.slice(0, 40);
+  const th = c.theme || {};
+  if (hexRGB(th.background)) CFG.background = '#' + String(th.background).replace('#', '');
+  if (hexRGB(th.ink)) { CFG.ink = th.ink; INK = hexRGB(th.ink); }
+  if (Array.isArray(c.horses)) CFG.horses = c.horses.filter(k => SKINS[k]).slice(0, 8);
+  if (c.track && typeof c.track === 'object') for (const k of ['lines', 'reflections', 'dust']) if (typeof c.track[k] === 'boolean') CFG.track[k] = c.track[k];
+  const lb = c.labels || {};
+  for (const k of ['showTask', 'showTimer']) if (typeof lb[k] === 'boolean') CFG.labels[k] = lb[k];
+  if (lb.rename && typeof lb.rename === 'object') CFG.labels.rename = lb.rename;
+  if (!params.get('layout') && typeof c.layout === 'string') LAYOUT = ({ '32x9': 'wide', wide: 'wide', '4x3': '4x3', auto: 'auto' })[c.layout.toLowerCase()] || 'auto';
+  if (CFG.horses && CFG.horses.length) horses.forEach((h, i) => { h.skin = CFG.horses[i % CFG.horses.length]; });
+  try { document.body.style.background = CFG.background; document.getElementById('stage').style.background = CFG.background; } catch { /* fine */ }
+  resize();
+}
+const MIN_LANES = clamp(parseInt(params.get('lanes') || (isTV() ? '4' : '6'), 10) || 6, 1, 8);
+const TEST_LANES = clamp(parseInt(params.get('agents') || String(MIN_LANES), 10) || MIN_LANES, 1, 8);
+let N = TEST_LANES;
+let demo = params.get('demo') !== '0';
+let live = false, liveCount = 0, liveSource = '', cloudMsg = '';
+
+const clock = () => performance.now() / 1000;
+const horses = [];
+for (let i = 0; i < 8; i++) {
+  const r = ROSTER[i];
+  const st = START[i];
+  horses.push({
+    i, name: r.name, task: r.task, skin: r.skin, state: st,
+    since: clock() - (40 + rnd() * 900), next: clock() + 6 + rnd() * 16, hold: 0,
+    w: { rest: st === 'rest' ? 1 : 0, work: st === 'work' ? 1 : 0, sprint: st === 'sprint' ? 1 : 0 },
+    phase: rnd(), frac: st === 'rest' ? 0.06 : st === 'work' ? 0.40 : 0.76,
+    jitter: (rnd() - 0.5) * 0.08, bob: null, groundOff: rnd() * 1000, prevSt: [1, 1, 1, 1], dust: [],
+    seed: rnd() * 100, heat: st === 'sprint' ? 0.2 : st === 'work' ? 0.02 : -0.18,
+    cock: 0, cockT: 0, cockNext: clock() + 3 + rnd() * 9,
+    alert: 0.7, alertT: 0.7, alertNext: clock() + rnd() * 8,
+    swish: 0, swishAmp: 0, swishNext: clock() + 2 + rnd() * 8,
+    ear: 0, earNext: clock() + 1 + rnd() * 5,
+    sparkles: Array.from({ length: 70 }, () => [lerp(-1.1, 1.9, rnd()), lerp(0.05, 2.2, rnd()), rnd() * TAU, 0.6 + rnd() * 1.6]),
+  });
+}
+
+function setState(h, s, manual) {
+  if (h.state !== s) { h.state = s; h.since = clock(); }
+  if (manual) h.hold = clock() + 90;
+  h.next = clock() + dur(s);
+}
+function dur(s) { return s === 'rest' ? 8 + rnd() * 16 : s === 'work' ? 10 + rnd() * 16 : 7 + rnd() * 12; }
+function pickNext(s) {
+  const r = rnd();
+  if (s === 'rest') return r < 0.6 ? 'work' : 'sprint';
+  if (s === 'work') return r < 0.45 ? 'sprint' : 'rest';
+  return r < 0.6 ? 'work' : 'rest';
+}
+
+/* overrides: hash (works inside the artifact viewer) and query (works when run as a local file) */
+function applyHash() {
+  const tag = (location.hash || '').slice(1).toLowerCase();
+  if (tag === 'sprint' || tag === 'work' || tag === 'rest') { demo = false; horses.forEach(h => setState(h, tag, false)); }
+  else if (tag === 'mixed') { demo = false; horses.forEach((h, i) => setState(h, START[i], false)); }
+  else if (tag === 'live') { demo = true; }
+}
+const qs = (params.get('state') || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+if (qs.length) {
+  demo = params.get('demo') === '1';
+  horses.forEach((h, i) => { const s = qs[Math.min(i, qs.length - 1)]; if (STATE_ORDER.includes(s)) setState(h, s, false); });
+}
+applyHash();
+addEventListener('hashchange', applyHash);
+
+/* ---------- gaits ---------- */
+const GAIT = {
+  trot:   { f: 1.55, s: 0.42, Af: 0.32, Ab: 0.28, F: 1.25, lift: 0.36, sag: 0.06, Bf: 0.30, Bb: 0.34, H: 1.05, off: [0, 0.5, 0.5, 0] },
+  gallop: { f: 2.10, s: 0.30, Af: 0.50, Ab: 0.46, F: 1.75, lift: 0.50, sag: 0.16, Bf: 0.46, Bb: 0.50, H: 1.45, off: [0.42, 0.30, 0.10, 0] },
+};
+for (const g of Object.values(GAIT)) g.v = 1.02 * (g.Af + g.Ab) * g.f / g.s; // ground speed that keeps hooves planted
+
+function fore(p, g) {
+  p -= Math.floor(p);
+  if (p < g.s) { const u = p / g.s; const a = g.Af - (g.Af + g.Ab) * u; return [a, a, a + 0.55 + Math.sin(Math.PI * u) * g.sag, 1]; }
+  const u = (p - g.s) / (1 - g.s);
+  const base = -g.Ab + (g.Af + g.Ab) * ease(u);
+  const fl = Math.sin(Math.PI * Math.pow(u, 0.72));
+  const a1 = base + fl * g.lift, a2 = a1 - fl * g.F;
+  return [a1, a2, a2 + 0.55 - fl * g.F * 0.6, 0];
+}
+function hind(p, g) {
+  p -= Math.floor(p);
+  if (p < g.s) { const u = p / g.s; const base = g.Bf - (g.Bf + g.Bb) * u; const a1 = -0.40 + base * 0.85; const a2 = a1 + 0.40 + Math.sin(Math.PI * u) * 0.10; return [a1, a2, a2 + 0.5, 1]; }
+  const u = (p - g.s) / (1 - g.s);
+  const base = -g.Bb + (g.Bf + g.Bb) * ease(u);
+  const fl = Math.sin(Math.PI * Math.pow(u, 0.85));
+  const a1 = -0.40 + base * 0.85 - fl * 0.30, a2 = a1 + 0.40 + fl * g.H;
+  return [a1, a2, a2 + 0.5 - fl * 0.9, 0];
+}
+function gaitLegs(ph, g) {
+  return [fore(ph - g.off[0], g), fore(ph - g.off[1], g), hind(ph - g.off[2], g), hind(ph - g.off[3], g)];
+}
+
+function restPose(h, t) {
+  const n1 = Math.sin(t * 0.37 + h.seed) * 0.5 + Math.sin(t * 0.23 + h.seed * 2) * 0.5;
+  const c = h.cock;
+  return {
+    legs: [[0.03, 0.03, 0.58, 1], [-0.04, -0.04, 0.51, 1], [-0.40 + c * 0.10, c * 0.38, 0.5 + c * 0.95, 1], [-0.36, 0.02, 0.52, 1]],
+    pitch: 0.008 * n1,
+    neck: lerp(0.60, 0.98, h.alert) + 0.03 * n1,
+    head: lerp(-1.32, -1.02, h.alert) + 0.05 * Math.sin(t * 0.5 + h.seed),
+    mane: 0, tail: 0, waveF: 1.1, waveA: 0.012,
+  };
+}
+function trotPose(h, ph) {
+  const g = GAIT.trot;
+  return { legs: gaitLegs(ph, g), pitch: 0.012 * Math.sin(TAU * 2 * ph), neck: 0.80 + 0.03 * Math.sin(TAU * 2 * ph + 1), head: -0.98, mane: 0.45, tail: 0.45, waveF: 6, waveA: 0.05 };
+}
+function gallopPose(h, ph) {
+  const g = GAIT.gallop;
+  const c = Math.cos(TAU * (ph - 0.15));
+  return { legs: gaitLegs(ph, g), pitch: 0.075 * c, neck: 0.44 - 0.10 * c, head: -0.66 + 0.06 * c, mane: 1, tail: 0.9, waveF: 11, waveA: 0.07 };
+}
+function blendPose(h, t) {
+  const W = h.w, sum = W.rest + W.work + W.sprint || 1;
+  const wr = W.rest / sum, wt = W.work / sum, wg = W.sprint / sum;
+  const parts = [];
+  if (wr > 0.001) parts.push([wr, restPose(h, t)]);
+  if (wt > 0.001) parts.push([wt, trotPose(h, h.phase)]);
+  if (wg > 0.001) parts.push([wg, gallopPose(h, h.phase)]);
+  const out = { legs: [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]], pitch: 0, neck: 0, head: 0, mane: 0, tail: 0, waveF: 0, waveA: 0 };
+  for (const [w, p] of parts) {
+    for (let l = 0; l < 4; l++) for (let k = 0; k < 4; k++) out.legs[l][k] += p.legs[l][k] * w;
+    for (const key of ['pitch', 'neck', 'head', 'mane', 'tail', 'waveF', 'waveA']) out[key] += p[key] * w;
+  }
+  out.speed = wt * GAIT.trot.v + wg * GAIT.gallop.v;
+  out.gallop = wg;
+  out.breath = Math.sin(t * TAU / 4.4 + h.seed) * wr;
+  return out;
+}
+
+/* ---------- geometry (metres, y up, horse faces +x) ---------- */
+const FORE_LEN = [0.52, 0.40, 0.13, 0.075], HIND_LEN = [0.48, 0.44, 0.13, 0.075];
+const FORE_R = [0.108, 0.058, 0.048, 0.043, 0.051], HIND_R = [0.14, 0.064, 0.05, 0.043, 0.051];
+const ROOTS = [[0.56, 1.10], [0.60, 1.12], [-0.55, 1.05], [-0.51, 1.07]];
+const PIV = 1.2;
+
+function geometry(h, pose, dt) {
+  const p = pose.pitch, cp = Math.cos(p), sp = Math.sin(p);
+  const R = (x, y) => [x * cp - (y - PIV) * sp, PIV + x * sp + (y - PIV) * cp];
+  const legs = [];
+  let minY = Infinity;
+  for (let l = 0; l < 4; l++) {
+    const a = pose.legs[l];
+    const lens = l < 2 ? FORE_LEN : HIND_LEN;
+    const angs = [a[0], a[1], a[2], a[2] + 0.15];
+    const r0 = R(ROOTS[l][0], ROOTS[l][1]);
+    const pts = [r0]; let x = r0[0], y = r0[1];
+    for (let k = 0; k < 4; k++) { const ang = angs[k] + p; x += Math.sin(ang) * lens[k]; y -= Math.cos(ang) * lens[k]; pts.push([x, y]); }
+    const st = a[3] > 0.5;
+    if (st && y < minY) minY = y;
+    legs.push({ pts, st });
+  }
+  const lift = pose.gallop * 0.06 * Math.max(0, Math.sin(TAU * (h.phase - 0.72) / 0.56));
+  const target = (minY === Infinity ? (h.bob ?? 0) : clamp(-minY, -0.02, 0.12)) + lift;
+  if (h.bob === null) h.bob = target; else h.bob += (target - h.bob) * Math.min(1, dt * 22);
+  const b = h.bob;
+  const T = (x, y) => { const q = R(x, y); return [q[0], q[1] + b]; };
+  for (const L of legs) for (const q of L.pts) q[1] += b;
+
+  const br = pose.breath * 0.014;
+  const body = [[0.30, 1.64], [-0.10, 1.53], [-0.62, 1.61], [-0.92, 1.50], [-1.01, 1.27], [-0.93, 1.04], [-0.72, 0.92], [-0.46, 0.97],
+    [-0.20, 0.96 - br], [0.10, 0.92 - br], [0.42, 0.94 - br * 0.5], [0.62, 1.00], [0.80, 1.18], [0.86, 1.36], [0.64, 1.60]].map(q => T(q[0], q[1]));
+
+  const nb = [0.62, 1.42];
+  const pollB = [nb[0] + Math.cos(pose.neck) * 0.82, nb[1] + Math.sin(pose.neck) * 0.82];
+  const poll = T(pollB[0], pollB[1]);
+  const hA = pose.head + p;
+  const u = [Math.cos(hA), Math.sin(hA)], v = [-Math.sin(hA), Math.cos(hA)];
+  const H = (a, c) => [poll[0] + u[0] * a + v[0] * c, poll[1] + u[1] * a + v[1] * c];
+  const head = [[0.00, 0.04], [0.14, 0.11], [0.32, 0.10], [0.50, 0.07], [0.64, 0.03], [0.67, -0.04], [0.64, -0.10], [0.54, -0.12],
+    [0.38, -0.13], [0.22, -0.22], [0.08, -0.21], [-0.02, -0.12]].map(q => H(q[0], q[1]));
+  const throat = H(-0.02, -0.15);
+  const withers = T(0.28, 1.64), chest = T(0.86, 1.34), shoulder = T(0.56, 1.46);
+  const d = [poll[0] - withers[0], poll[1] - withers[1]], dl = Math.hypot(d[0], d[1]);
+  const nrm = [-d[1] / dl, d[0] / dl];
+  const crestCtl = [(withers[0] + poll[0]) / 2 + nrm[0] * 0.11, (withers[1] + poll[1]) / 2 + nrm[1] * 0.11];
+  const throatCtl = [(chest[0] + throat[0]) / 2 - nrm[0] * 0.03, (chest[1] + throat[1]) / 2 - nrm[1] * 0.03];
+  const flick = h.ear * 0.08;
+  const ears = [[H(0.03, 0.07), H(0.11, 0.10), H(-0.10 + flick, 0.25)], [H(0.06, 0.08), H(0.13, 0.10), H(-0.04 + flick * 0.5, 0.25)]];
+  return { legs, body, poll, throat, withers, chest, shoulder, crestCtl, throatCtl, head, ears, tailRoot: T(-0.93, 1.50), b, pitch: p };
+}
+
+/* ---------- layout & shared canvases ---------- */
+let W = 0, H = 0, dpr = 1, S = 50, LW = 10, LH = 10, OX = 0, OY = 0;
+let L = {};
+const mk = () => { const c = document.createElement('canvas'); return [c, c.getContext('2d')]; };
+const [MASK, mctx] = mk(), [LAYER, lctx] = mk(), [COMP, cctx] = mk(), [REF, rctx] = mk(), [RIM, rimctx] = mk();
+const [NOISE, nctx] = mk(); NOISE.width = 84; NOISE.height = 60;
+const noiseImg = nctx.createImageData(NOISE.width, NOISE.height);
+
+function resize() {
+  const cw = innerWidth, ch = innerHeight;
+  const tv = isTV();
+  let d = tv ? 1 : Math.min(devicePixelRatio || 1, 2);
+  if (cw * ch * d * d > 9.5e6) d = Math.sqrt(9.5e6 / (cw * ch));
+  dpr = d; W = Math.max(1, Math.round(cw * d)); H = Math.max(1, Math.round(ch * d));
+  cv.width = W; cv.height = H;
+  const wide = !tv && W / H >= 1.9;
+  // a tube TV crops its edges, so the tv layout keeps a wide safe margin
+  const gut = tv ? Math.max(16, W * 0.055) : Math.max(20 * d, W * 0.012);
+  const footH = tv ? Math.max(30, H * 0.085) : clamp(H * 0.04, 30 * d, 64 * d);
+  const top = tv ? Math.max(12, H * 0.05) : Math.max(10 * d, H * 0.012);
+  const lh = (H - footH - top) / N;
+  const labelW = wide ? clamp(W * 0.09, 210 * d, 480 * d) : tv ? W * 0.36 : 0;
+  const scaleByH = (wide ? 0.60 : tv ? 0.50 : 0.46) * lh / 1.62;
+  const scaleByW = (W - labelW - 2 * gut) / (wide ? 5.2 : tv ? 3.4 : 4.6);
+  S = Math.max(8, Math.min(scaleByH, scaleByW));
+  LW = Math.ceil(4.1 * S) + 8; LH = Math.ceil(3.5 * S) + 8;
+  OX = 2.0 * S + 4; OY = 2.72 * S + 4;
+  for (const c of [MASK, LAYER, COMP, REF, RIM]) { c.width = LW; c.height = LH; }
+  const fs = tv ? clamp(Math.min(lh * 0.15, W * 0.026), 12, 30) : clamp(lh * 0.068, 10.5 * d, 21 * d);
+  L = { wide, tv, gut, footH, top, lh, labelW, fs, trackX0: gut + labelW + (wide ? gut : tv ? gut * 0.5 : 0), trackX1: W - gut };
+  buildTiles();
+}
+
+/* ---------- surface tiles ---------- */
+const TILES = {};
+function buildTiles() {
+  // red dot grid, anchored to the layer so the dots ride with the body
+  const sp = Math.max(4, Math.round(0.105 * S));
+  const [dt, dc] = mk(); dt.width = sp; dt.height = sp;
+  dc.fillStyle = '#F6E9DA'; dc.beginPath(); dc.arc(sp / 2, sp / 2, Math.max(1, 0.026 * S), 0, TAU); dc.fill();
+  TILES.dots = lctx.createPattern(dt, 'repeat');
+  TILES.dotsOffset = [(OX % sp), (OY % sp)];
+  if (!TILES.leopard) TILES.leopard = makeLeopard();
+  if (!TILES.cobalt) TILES.cobalt = makeCobalt();
+  if (!TILES.grain) TILES.grain = makeGrain();
+}
+function makeLeopard() {
+  const n = 512, r = rng(7);
+  const [c, x] = mk(); c.width = n; c.height = n;
+  const g = x.createLinearGradient(0, 0, n, n); g.addColorStop(0, '#CF9C5E'); g.addColorStop(0.5, '#C08A4C'); g.addColorStop(1, '#D3A56A');
+  x.fillStyle = g; x.fillRect(0, 0, n, n);
+  for (let i = 0; i < 900; i++) { x.fillStyle = `rgba(${r() < 0.5 ? '255,236,200' : '120,72,30'},${0.05 + r() * 0.08})`; x.fillRect(r() * n, r() * n, 2 + r() * 6, 1 + r() * 3); }
+  const spots = [];
+  for (let i = 0; i < 34; i++) spots.push([r() * n, r() * n, 17 + r() * 13, r()]);
+  for (const [cx, cy, rad, k] of spots) for (const ox of [-n, 0, n]) for (const oy of [-n, 0, n]) {
+    const px = cx + ox, py = cy + oy;
+    if (px < -60 || px > n + 60 || py < -60 || py > n + 60) continue;
+    x.fillStyle = 'rgba(150,86,34,0.55)'; x.beginPath(); x.ellipse(px, py, rad * 0.62, rad * 0.5, k * 3, 0, TAU); x.fill();
+    const blobs = 4 + Math.floor(k * 3);
+    x.fillStyle = '#24160D';
+    for (let j = 0; j < blobs; j++) {
+      const a = (j / blobs) * TAU + k * 5 + (r() - 0.5) * 0.4;
+      x.beginPath(); x.ellipse(px + Math.cos(a) * rad * 0.82, py + Math.sin(a) * rad * 0.68, rad * (0.22 + r() * 0.14), rad * (0.13 + r() * 0.08), a + Math.PI / 2, 0, TAU); x.fill();
+    }
+  }
+  x.fillStyle = '#2A1A0F';
+  for (let i = 0; i < 60; i++) { x.beginPath(); x.ellipse(r() * n, r() * n, 3 + r() * 5, 2 + r() * 3, r() * 3, 0, TAU); x.fill(); }
+  return c;
+}
+function makeCobalt() {
+  const n = 160;
+  const [c, x] = mk(); c.width = n; c.height = n;
+  x.fillStyle = '#1543DE'; x.fillRect(0, 0, n, n);
+  const bloom = (cx, cy, s, rot) => {
+    x.save(); x.translate(cx, cy); x.rotate(rot); x.fillStyle = '#F2EDE0';
+    for (let k = 0; k < 4; k++) { x.rotate(TAU / 4); x.beginPath(); x.ellipse(0, -s * 0.55, s * 0.28, s * 0.5, 0, 0, TAU); x.fill(); }
+    x.fillStyle = '#1543DE'; x.beginPath(); x.arc(0, 0, s * 0.16, 0, TAU); x.fill();
+    x.restore();
+  };
+  for (const [cx, cy] of [[40, 40], [120, 120], [40 + 160, 40], [-40, 120], [120, -40], [40, 200]]) bloom(cx, cy, 26, 0.3);
+  return c;
+}
+function makeGrain() {
+  const n = 192, r = rng(11);
+  const [c, x] = mk(); c.width = n; c.height = n;
+  const img = x.createImageData(n, n);
+  for (let i = 0; i < n * n; i++) { const v = 70 + r() * 150 | 0; img.data[i * 4] = v; img.data[i * 4 + 1] = v + 2; img.data[i * 4 + 2] = v + 6; img.data[i * 4 + 3] = 255; }
+  x.putImageData(img, 0, 0);
+  return c;
+}
+const THERMAL = (() => {
+  const stops = [[0, [5, 9, 70]], [0.25, [16, 46, 214]], [0.45, [60, 120, 255]], [0.6, [160, 192, 255]], [0.72, [233, 238, 140]], [0.86, [255, 210, 60]], [1, [255, 246, 216]]];
+  const lut = new Uint8Array(256 * 3);
+  for (let i = 0; i < 256; i++) {
+    const v = i / 255; let k = 0; while (k < stops.length - 2 && v > stops[k + 1][0]) k++;
+    const [a, ca] = stops[k], [b2, cb] = stops[k + 1]; const f = clamp((v - a) / (b2 - a), 0, 1);
+    for (let j = 0; j < 3; j++) lut[i * 3 + j] = ca[j] + (cb[j] - ca[j]) * f;
+  }
+  return lut;
+})();
+
+const lx = x => OX + x * S, ly = y => OY - y * S;
+
+const SKINS = {
+  chrome: {
+    swatch: '#D8DCE2',
+    paint(c, h, t) {
+      const g = c.createLinearGradient(0, ly(2.3), 0, ly(0));
+      [[0, '#F4F6F8'], [0.16, '#979EA8'], [0.29, '#FFFFFF'], [0.40, '#454B54'], [0.52, '#D7DBE1'], [0.64, '#676D76'], [0.78, '#EEF0F3'], [0.9, '#393D44'], [1, '#A9AFB8']].forEach(s => g.addColorStop(s[0], s[1]));
+      c.fillStyle = g; c.fillRect(0, 0, LW, LH);
+      if (!reduced) {
+        c.globalCompositeOperation = 'source-atop';
+        const sx = (((t * 0.16 + h.seed) % 1.7) - 0.35) * LW;
+        const g2 = c.createLinearGradient(sx - 0.7 * S, 0, sx + 0.7 * S, LH * 0.3);
+        g2.addColorStop(0, 'rgba(255,255,255,0)'); g2.addColorStop(0.5, 'rgba(255,255,255,0.5)'); g2.addColorStop(1, 'rgba(255,255,255,0)');
+        c.fillStyle = g2; c.fillRect(0, 0, LW, LH);
+      }
+    },
+    rims: [[2, 2, '#FFFFFF', 0.9], [-1.5, -1.5, '#56606E', 0.7]], shade: 0.6, far: 0.5,
+  },
+  thermal: {
+    swatch: '#F2D640',
+    paint(c, h, t) {
+      const nx = NOISE.width, ny = NOISE.height, d = noiseImg.data, load = h.heat;
+      const G = (x, y, cx, cy, s) => Math.exp(-((x - cx) ** 2 + (y - cy) ** 2) / (2 * s * s));
+      for (let j = 0; j < ny; j++) {
+        const y = (OY - (j / (ny - 1)) * LH) / S;
+        for (let i = 0; i < nx; i++) {
+          const x = ((i / (nx - 1)) * LW - OX) / S;
+          let v = 0.40 + load
+            + 0.34 * G(x, y, 0.45, 1.25, 0.34) + 0.32 * G(x, y, -0.62, 1.28, 0.38) + 0.18 * G(x, y, 0.95, 1.75, 0.3) + 0.12 * G(x, y, 1.2, 1.95, 0.2)
+            - (y < 0.85 ? (0.85 - y) * 0.35 : 0)
+            + 0.10 * Math.sin(x * 3.1 + t * 1.2) * Math.sin(y * 2.7 - t * 0.8) + 0.06 * Math.sin((x + y) * 5.3 + t * 2.2 * (1 + load * 3));
+          const k = clamp(v, 0, 1) * 255 | 0, o = (j * nx + i) * 4;
+          d[o] = THERMAL[k * 3]; d[o + 1] = THERMAL[k * 3 + 1]; d[o + 2] = THERMAL[k * 3 + 2]; d[o + 3] = 255;
+        }
+      }
+      nctx.putImageData(noiseImg, 0, 0);
+      c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high';
+      c.drawImage(NOISE, 0, 0, LW, LH);
+    },
+    rims: [[2, 2, '#FFFFFF', 0.35]], shade: 0.35, far: 0.45,
+  },
+  type: {
+    swatch: '#35E06A',
+    paint(c, h, t, pose) {
+      c.fillStyle = '#34E06A'; c.fillRect(0, 0, LW, LH);
+      c.globalCompositeOperation = 'source-atop';
+      const fs = 0.36 * S;
+      c.font = `${fs}px "Archivo Black", "Arial Black", Impact, sans-serif`;
+      c.fillStyle = '#06170C'; c.textBaseline = 'alphabetic';
+      const word = h.name.toUpperCase() + ' ';
+      const tw = Math.max(1, c.measureText(word).width);
+      h.typeOff = (h.typeOff || 0) + (0.25 + pose.speed * 0.16) * S * (h._dt || 0.016);
+      let row = 0;
+      for (let y = ly(2.6); y < ly(-0.1) + fs; y += fs * 0.84, row++) {
+        const off = ((h.typeOff * (row % 2 ? 1 : 0.72) + row * tw * 0.37) % tw + tw) % tw;
+        for (let x = -off; x < LW; x += tw) c.fillText(word, x, y);
+      }
+    },
+    rims: [[2, 2, '#FFFFFF', 0.25]], shade: 0.4, far: 0.5,
+  },
+  dots: {
+    swatch: '#E2271C',
+    paint(c) {
+      c.fillStyle = '#E0261B'; c.fillRect(0, 0, LW, LH);
+      c.globalCompositeOperation = 'source-atop';
+      c.save(); c.translate(TILES.dotsOffset[0], TILES.dotsOffset[1]); c.fillStyle = TILES.dots; c.fillRect(-LW, -LH, LW * 3, LH * 3); c.restore();
+    },
+    rims: [[2, 2, '#FFFFFF', 0.25]], shade: 0.5, far: 0.5,
+  },
+  glass: {
+    swatch: '#9FC4EE',
+    paint(c, h, t) {
+      c.fillStyle = 'rgba(150,182,220,0.10)'; c.fillRect(0, 0, LW, LH);
+      c.globalCompositeOperation = 'source-atop';
+      const drift = (t * 0.05 + h.seed) % 1;
+      const g = c.createLinearGradient(0, 0, LW, LH);
+      for (let k = 0; k < 7; k++) {
+        const p = (k / 7 + drift) % 1;
+        g.addColorStop(clamp(p - 0.03, 0, 1), 'rgba(255,255,255,0)'); g.addColorStop(p, 'rgba(225,238,255,0.20)'); g.addColorStop(clamp(p + 0.03, 0, 1), 'rgba(255,255,255,0)');
+      }
+      c.fillStyle = g; c.fillRect(0, 0, LW, LH);
+      for (const [x, y, r, a] of [[0.42, 1.42, 0.22, 0.55], [-0.62, 1.46, 0.2, 0.45], [0.05, 1.18, 0.30, 0.18], [0.70, 1.62, 0.12, 0.5]]) {
+        const rg = c.createRadialGradient(lx(x), ly(y), 0, lx(x), ly(y), r * S);
+        rg.addColorStop(0, `rgba(255,255,255,${a})`); rg.addColorStop(1, 'rgba(255,255,255,0)');
+        c.fillStyle = rg; c.fillRect(0, 0, LW, LH);
+      }
+    },
+    rims: [[2.5, 2.5, '#FFFFFF', 0.95], [-2, -2, '#7FB0FF', 0.6], [0, 1, '#DDE9FF', 0.35]], shade: 0, far: 0.15,
+  },
+  leopard: {
+    swatch: '#C8935A',
+    paint(c) {
+      const k = (1.15 * S) / 512;
+      c.save(); c.scale(k, k); c.fillStyle = lctx.createPattern(TILES.leopard, 'repeat'); c.fillRect(0, 0, LW / k, LH / k); c.restore();
+    },
+    rims: [[2, 2, '#FFF2DC', 0.3]], shade: 0.8, far: 0.5,
+  },
+  cobalt: {
+    swatch: '#1543DE',
+    paint(c) {
+      const k = (0.62 * S) / 160;
+      c.save(); c.scale(k, k); c.fillStyle = lctx.createPattern(TILES.cobalt, 'repeat'); c.fillRect(0, 0, LW / k, LH / k); c.restore();
+    },
+    rims: [[2, 2, '#FFFFFF', 0.25]], shade: 0.5, far: 0.5,
+  },
+  glitter: {
+    swatch: '#9A9DA3',
+    paint(c, h, t) {
+      c.save(); c.scale(dpr, dpr); c.fillStyle = lctx.createPattern(TILES.grain, 'repeat'); c.fillRect(0, 0, LW / dpr, LH / dpr); c.restore();
+      c.globalCompositeOperation = 'source-atop';
+      c.fillStyle = '#FFFFFF';
+      for (const [x, y, ph, sp] of h.sparkles) {
+        const a = Math.pow(Math.max(0, Math.sin(t * sp + ph)), 18);
+        if (a < 0.03) continue;
+        const r = (0.6 + a * 2.2) * dpr, X = lx(x), Y = ly(y);
+        c.globalAlpha = a; c.fillRect(X - r, Y - 0.5 * dpr, r * 2, dpr); c.fillRect(X - 0.5 * dpr, Y - r, dpr, r * 2);
+      }
+      c.globalAlpha = 1;
+    },
+    rims: [[2, 2, '#FFFFFF', 0.6]], shade: 0.6, far: 0.5,
+  },
+};
+
+/* ---------- drawing ---------- */
+function capsule(c, a, r1, b, r2) {
+  const x1 = lx(a[0]), y1 = ly(a[1]), x2 = lx(b[0]), y2 = ly(b[1]);
+  const R1 = r1 * S, R2 = r2 * S;
+  const dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy) || 1e-6, nx = -dy / len, ny = dx / len;
+  c.beginPath();
+  c.moveTo(x1 + nx * R1, y1 + ny * R1); c.lineTo(x2 + nx * R2, y2 + ny * R2); c.lineTo(x2 - nx * R2, y2 - ny * R2); c.lineTo(x1 - nx * R1, y1 - ny * R1); c.closePath();
+  c.moveTo(x1 + R1, y1); c.arc(x1, y1, R1, 0, TAU);
+  c.moveTo(x2 + R2, y2); c.arc(x2, y2, R2, 0, TAU);
+  c.fill();
+}
+function smoothClosed(c, pts) {
+  const n = pts.length, P = pts.map(q => [lx(q[0]), ly(q[1])]);
+  c.beginPath(); c.moveTo(P[0][0], P[0][1]);
+  for (let i = 0; i < n; i++) {
+    const p0 = P[(i - 1 + n) % n], p1 = P[i], p2 = P[(i + 1) % n], p3 = P[(i + 2) % n];
+    c.bezierCurveTo(p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6, p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6, p2[0], p2[1]);
+  }
+  c.closePath(); c.fill();
+}
+function drawLeg(c, leg, isFore) {
+  const R = isFore ? FORE_R : HIND_R, p = leg.pts;
+  for (let k = 0; k < 4; k++) capsule(c, p[k], R[k], p[k + 1], R[k + 1]);
+  if (isFore) capsule(c, p[1], 0.06, p[1], 0.06);
+  else { const hk = p[1]; capsule(c, hk, 0.062, [hk[0] - 0.035, hk[1] + 0.02], 0.045); }
+}
+function quadPt(a, ctl, b, t) { const m = 1 - t; return [m * m * a[0] + 2 * m * t * ctl[0] + t * t * b[0], m * m * a[1] + 2 * m * t * ctl[1] + t * t * b[1]]; }
+
+function drawNear(c, g, pose, h, t) {
+  c.fillStyle = '#fff'; c.strokeStyle = '#fff'; c.lineCap = 'round'; c.lineJoin = 'round';
+  // tail
+  const lift = clamp(pose.tail, 0, 1);
+  const swing = h.swish * h.swishAmp;
+  const n = 9, seg = 0.95 / n;
+  for (let k = 0; k < 5; k++) {
+    let a = (lerp(250, 172, lift) + (k - 2) * lerp(5, 7, lift)) * D2R, x = g.tailRoot[0], y = g.tailRoot[1];
+    for (let i = 1; i <= n; i++) {
+      const fi = i / n;
+      a += (268 * D2R - a) * 0.07 * (1 - lift * 0.85) * fi;
+      a += Math.sin(t * pose.waveF - i * 0.55 + k * 0.9 + h.seed) * pose.waveA * fi * 3 + swing * 0.06 * fi;
+      const nx2 = x + Math.cos(a) * seg, ny2 = y + Math.sin(a) * seg;
+      c.lineWidth = lerp(0.12, 0.02, fi * fi) * S * (1 - Math.abs(k - 2) * 0.1);
+      c.beginPath(); c.moveTo(lx(x), ly(y)); c.lineTo(lx(nx2), ly(ny2)); c.stroke();
+      x = nx2; y = ny2;
+    }
+  }
+  // body
+  smoothClosed(c, g.body);
+  // neck
+  c.beginPath();
+  c.moveTo(lx(g.withers[0]), ly(g.withers[1]));
+  c.quadraticCurveTo(lx(g.crestCtl[0]), ly(g.crestCtl[1]), lx(g.poll[0]), ly(g.poll[1]));
+  c.lineTo(lx(g.throat[0]), ly(g.throat[1]));
+  c.quadraticCurveTo(lx(g.throatCtl[0]), ly(g.throatCtl[1]), lx(g.chest[0]), ly(g.chest[1]));
+  c.lineTo(lx(g.shoulder[0]), ly(g.shoulder[1]));
+  c.closePath(); c.fill();
+  // head and ears
+  smoothClosed(c, g.head);
+  for (const e of g.ears) { c.beginPath(); c.moveTo(lx(e[0][0]), ly(e[0][1])); c.quadraticCurveTo(lx(e[2][0] + 0.02), ly(e[2][1] - 0.06), lx(e[2][0]), ly(e[2][1])); c.lineTo(lx(e[1][0]), ly(e[1][1])); c.closePath(); c.fill(); }
+  // mane
+  const flowDeg = lerp(252, 178, clamp(pose.mane, 0, 1));
+  for (let i = 0; i < 12; i++) {
+    const tt = 0.06 + i / 12 * 0.86;
+    const s0 = quadPt(g.withers, g.crestCtl, g.poll, tt);
+    let a = (flowDeg + Math.sin(t * (2 + pose.waveF * 0.8) + i * 0.8 + h.seed) * lerp(3, 10, pose.mane)) * D2R;
+    const len = 0.11 + 0.07 * Math.sin(i * 2.3 + h.seed) ** 2 + pose.mane * 0.05;
+    const m1 = [s0[0] + Math.cos(a) * len * 0.5, s0[1] + Math.sin(a) * len * 0.5];
+    a += (pose.mane * -0.15 + 0.2) * (i % 2 ? 1 : -1);
+    const e1 = [m1[0] + Math.cos(a) * len * 0.5, m1[1] + Math.sin(a) * len * 0.5];
+    c.lineWidth = 0.05 * S; c.beginPath(); c.moveTo(lx(s0[0]), ly(s0[1])); c.lineTo(lx(m1[0]), ly(m1[1])); c.stroke();
+    c.lineWidth = 0.028 * S; c.beginPath(); c.moveTo(lx(m1[0]), ly(m1[1])); c.lineTo(lx(e1[0]), ly(e1[1])); c.stroke();
+  }
+  // forelock
+  const fl = [g.poll[0] + 0.02, g.poll[1] + 0.02];
+  const fa = (lerp(300, 200, pose.mane) + Math.sin(t * 3 + h.seed) * 4) * D2R;
+  c.lineWidth = 0.035 * S; c.beginPath(); c.moveTo(lx(fl[0]), ly(fl[1])); c.lineTo(lx(fl[0] + Math.cos(fa) * 0.1), ly(fl[1] + Math.sin(fa) * 0.1)); c.stroke();
+  // near legs
+  drawLeg(c, g.legs[0], true);
+  drawLeg(c, g.legs[2], false);
+}
+function drawFar(c, g) {
+  c.fillStyle = '#fff';
+  drawLeg(c, g.legs[1], true);
+  drawLeg(c, g.legs[3], false);
+}
+
+function shade(c, k) {
+  if (!k) return;
+  const g = c.createLinearGradient(0, ly(2.25), 0, ly(0));
+  g.addColorStop(0, `rgba(255,255,255,${0.10 * k})`); g.addColorStop(0.32, 'rgba(255,255,255,0)');
+  g.addColorStop(0.58, `rgba(0,0,0,${0.10 * k})`); g.addColorStop(1, `rgba(0,0,0,${0.36 * k})`);
+  c.fillStyle = g; c.fillRect(0, 0, LW, LH);
+  for (const [x, y, r] of [[0.45, 1.38, 0.5], [-0.62, 1.42, 0.5]]) {
+    const rg = c.createRadialGradient(lx(x), ly(y), 0, lx(x), ly(y), r * S);
+    rg.addColorStop(0, `rgba(255,255,255,${0.11 * k})`); rg.addColorStop(1, 'rgba(255,255,255,0)');
+    c.fillStyle = rg; c.fillRect(0, 0, LW, LH);
+  }
+}
+function rim(c, dx, dy, color, a) {
+  const r = rimctx;
+  r.globalCompositeOperation = 'source-over'; r.globalAlpha = 1; r.clearRect(0, 0, LW, LH);
+  r.drawImage(MASK, 0, 0);
+  r.globalCompositeOperation = 'destination-out'; r.drawImage(MASK, dx * dpr, dy * dpr);
+  r.globalCompositeOperation = 'source-in'; r.fillStyle = color; r.fillRect(0, 0, LW, LH);
+  c.save(); c.globalCompositeOperation = 'source-atop'; c.globalAlpha = a; c.drawImage(RIM, 0, 0); c.restore();
+}
+function paintLayer(h, t, pose, far) {
+  const skin = SKINS[h.skin], c = lctx;
+  c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1; c.clearRect(0, 0, LW, LH);
+  c.drawImage(MASK, 0, 0);
+  c.globalCompositeOperation = 'source-in';
+  skin.paint(c, h, t, pose);
+  c.globalCompositeOperation = 'source-atop';
+  shade(c, skin.shade);
+  for (const [dx, dy, col, a] of skin.rims) rim(c, dx, dy, col, far ? a * 0.6 : a);
+  if (far) { c.globalCompositeOperation = 'source-atop'; c.fillStyle = `rgba(0,0,0,${skin.far})`; c.fillRect(0, 0, LW, LH); }
+  c.globalCompositeOperation = 'source-over';
+}
+function renderHorse(h, g, pose, t) {
+  cctx.globalCompositeOperation = 'source-over'; cctx.clearRect(0, 0, LW, LH);
+  mctx.clearRect(0, 0, LW, LH); drawFar(mctx, g);
+  paintLayer(h, t, pose, true); cctx.drawImage(LAYER, 0, 0);
+  mctx.clearRect(0, 0, LW, LH); drawNear(mctx, g, pose, h, t);
+  paintLayer(h, t, pose, false); cctx.drawImage(LAYER, 0, 0);
+}
+function drawReflection(x, y) {
+  const r = rctx, depth = 0.75 * S;
+  r.globalCompositeOperation = 'source-over'; r.clearRect(0, 0, LW, LH);
+  r.save(); r.translate(0, 2 * OY); r.scale(1, -1); r.drawImage(COMP, 0, 0); r.restore();
+  r.globalCompositeOperation = 'destination-in';
+  const g = r.createLinearGradient(0, OY, 0, OY + depth);
+  g.addColorStop(0, 'rgba(0,0,0,0.26)'); g.addColorStop(0.45, 'rgba(0,0,0,0.07)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+  r.fillStyle = g; r.fillRect(0, OY, LW, LH - OY);
+  r.fillStyle = 'rgba(0,0,0,0)';
+  ctx.drawImage(REF, 0, OY, LW, LH - OY, x, y + OY, LW, LH - OY);
+}
+
+/* ---------- labels ---------- */
+const MONO = '"Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace';
+function fmtSince(s) {
+  s = Math.max(0, s | 0);
+  if (s < 60) return s + 's';
+  if (s < 3600) return Math.floor(s / 60) + 'm ' + String(s % 60).padStart(2, '0') + 's';
+  return Math.floor(s / 3600) + 'h ' + String(Math.floor(s % 3600 / 60)).padStart(2, '0') + 'm';
+}
+let selected = -1, selectedUntil = 0;
+function fitText(t, max) {
+  if (!(max < Infinity) || ctx.measureText(t).width <= max) return t;
+  while (t.length > 1 && ctx.measureText(t + '…').width > max) t = t.slice(0, -1);
+  return t + '…';
+}
+function drawLabel(h, laneTop, groundY, now, drift) {
+  const fs = L.fs, d = dpr;
+  const hl = h.i === selected && now < selectedUntil;
+  const x0 = L.gut + drift[0];
+  const side = L.wide || L.tv;
+  let y = side ? groundY - L.lh * 0.50 + drift[1] : laneTop + fs * 1.6 + drift[1];
+  ctx.textBaseline = 'alphabetic';
+  ctx.font = `400 ${fs * 0.92}px ${MONO}`;
+  ctx.fillStyle = hl ? ink(0.9) : ink(0.30);
+  ctx.fillText(String(h.i + 1).padStart(2, '0'), x0, y);
+  const nx = x0 + fs * 2.4;
+  ctx.fillStyle = SKINS[h.skin].swatch; ctx.globalAlpha = 0.9;
+  ctx.fillRect(nx, y - fs * 0.62, fs * 0.5, fs * 0.5); ctx.globalAlpha = 1;
+  ctx.font = `500 ${fs}px ${MONO}`;
+  ctx.fillStyle = hl ? ink(1) : ink(0.72);
+  const maxW = L.tv ? L.trackX0 - L.gut * 0.5 - (nx + fs * 0.95) : Infinity;
+  ctx.fillText(fitText(h.name.toUpperCase(), maxW), nx + fs * 0.95, y);
+  if (side) {
+    y += fs * 1.45;
+    ctx.font = `400 ${fs * 0.88}px ${MONO}`; ctx.fillStyle = ink(0.36);
+    if (CFG.labels.showTask) ctx.fillText(fitText(h.task, maxW), nx + fs * 0.95, y);
+    y += fs * 1.75;
+  } else {
+    ctx.font = `400 ${fs * 0.88}px ${MONO}`; ctx.fillStyle = ink(0.36);
+    const tx = nx + fs * 0.95 + ctx.measureText(h.name.toUpperCase() + '  ').width * (fs / (fs * 0.88));
+    if (CFG.labels.showTask && (!L.tv || tx + ctx.measureText(h.task).width < W - L.gut)) ctx.fillText(h.task, tx, y);
+    y += fs * 1.5;
+  }
+  const lvl = h.state === 'rest' ? 1 : h.state === 'work' ? 2 : 3;
+  const sq = fs * 0.36, gap = fs * 0.2;
+  for (let k = 0; k < 3; k++) {
+    ctx.fillStyle = k < lvl ? (lvl === 3 ? ink(0.95) : ink(0.7)) : ink(0.14);
+    ctx.fillRect(nx + fs * 0.95 + k * (sq + gap), y - sq * 1.15, sq, sq);
+  }
+  ctx.font = `500 ${fs * 0.88}px ${MONO}`;
+  ctx.fillStyle = h.state === 'sprint' ? ink(0.92) : ink(0.55);
+  const sx = nx + fs * 0.95 + 3 * (sq + gap) + fs * 0.4;
+  const word = h.open ? 'Open' : (h.note && h.state === 'rest') ? h.note.charAt(0).toUpperCase() + h.note.slice(1) : STATE_LABEL[h.state];
+  ctx.fillText(word, sx, y);
+  if (!h.open && CFG.labels.showTimer) {
+    ctx.font = `400 ${fs * 0.88}px ${MONO}`; ctx.fillStyle = ink(0.30);
+    ctx.fillText(fmtSince(clock() - h.since), sx + ctx.measureText(word + '  ').width * 1.0, y);
+  }
+}
+
+/* ---------- main loop ---------- */
+let last = clock(), hintUntil = clock() + 7;
+function simulate(h, now, dt) {
+  if (demo && !live && now > h.next && now > h.hold) setState(h, pickNext(h.state), false);
+  const tgt = { rest: h.state === 'rest' ? 1 : 0, work: h.state === 'work' ? 1 : 0, sprint: h.state === 'sprint' ? 1 : 0 };
+  const k = 1 - Math.exp(-dt * 1.1);
+  for (const s of STATE_ORDER) h.w[s] += (tgt[s] - h.w[s]) * k;
+  const fracT = (h.state === 'rest' ? 0.06 : h.state === 'work' ? 0.40 : 0.76) + h.jitter;
+  h.frac += (fracT - h.frac) * (1 - Math.exp(-dt / 5));
+  const heatT = h.state === 'sprint' ? 0.22 : h.state === 'work' ? 0.02 : -0.18;
+  h.heat += (heatT - h.heat) * (1 - Math.exp(-dt / 4));
+  const moving = h.w.work + h.w.sprint;
+  const f = moving > 0.001 ? (h.w.work * GAIT.trot.f + h.w.sprint * GAIT.gallop.f) / moving : 1;
+  h.phase = (h.phase + f * dt) % 1;
+  // idle life
+  if (now > h.cockNext) { h.cockT = h.cockT ? 0 : 1; h.cockNext = now + 7 + rnd() * 14; }
+  h.cock += (h.cockT * (h.w.rest > 0.9 ? 1 : 0) - h.cock) * (1 - Math.exp(-dt * 1.6));
+  if (now > h.alertNext) { h.alertT = rnd() < 0.4 ? 0.1 + rnd() * 0.3 : 0.65 + rnd() * 0.35; h.alertNext = now + 5 + rnd() * 10; }
+  h.alert += (h.alertT - h.alert) * (1 - Math.exp(-dt * 0.5));
+  if (now > h.swishNext) { h.swishAmp = 1; h.swishNext = now + 3 + rnd() * 9; }
+  h.swishAmp *= Math.exp(-dt * 0.9);
+  h.swish = Math.sin(now * 3.2 + h.seed) * 4 * h.swishAmp;
+  if (now > h.earNext) { h.earT = now; h.earNext = now + 2 + rnd() * 7; }
+  h.ear = h.earT ? Math.max(0, Math.sin(Math.min(1, (now - h.earT) / 0.5) * Math.PI)) : 0;
+}
+
+function frame() {
+  const now = clock();
+  const dt = Math.min(0.05, Math.max(0, now - last)); last = now;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+  ctx.fillStyle = CFG.background; ctx.fillRect(0, 0, W, H);
+  const drift = [Math.sin(now / 97) * 3 * dpr, Math.cos(now / 131) * 2 * dpr];
+
+  if (L.wide || L.tv) { ctx.fillStyle = ink(0.06); ctx.fillRect(L.trackX0 - L.gut * 0.5, L.top, Math.max(1, dpr), H - L.footH - L.top); }
+
+  let counts = { rest: 0, work: 0, sprint: 0 };
+  for (const h of horses.slice(0, N)) {
+    h._dt = dt;
+    simulate(h, now, dt);
+    if (!h.open) counts[h.state]++;
+    const laneTop = L.top + L.lh * h.i;
+    const groundY = laneTop + L.lh * (L.wide ? 0.80 : 0.86);
+    const pose = blendPose(h, now);
+    const g = geometry(h, pose, dt);
+    h.groundOff += pose.speed * S * dt;
+
+    // rail and posts
+    if (CFG.track.lines) {
+    ctx.fillStyle = ink(0.10);
+    ctx.fillRect(L.trackX0, Math.round(groundY), L.trackX1 - L.trackX0, Math.max(1, dpr));
+    const sp = 2 * S, k0 = Math.ceil(h.groundOff / sp);
+    for (let k = k0; ; k++) {
+      const x = L.trackX0 + k * sp - h.groundOff;
+      if (x > L.trackX1) break;
+      const major = k % 10 === 0;
+      ctx.fillStyle = major ? ink(0.26) : ink(0.11);
+      ctx.fillRect(Math.round(x), Math.round(groundY) - (major ? 0.16 : 0.05) * S, Math.max(1, dpr), (major ? 0.16 : 0.05) * S);
+    }
+    }
+
+    const span = L.trackX1 - L.trackX0;
+    const originX = L.trackX0 + 2.0 * S + clamp(h.frac, 0, 1) * Math.max(0, span - 4.1 * S);
+    renderHorse(h, g, pose, now);
+    const dx = Math.round(originX - OX), dy = Math.round(groundY - OY);
+    // an open lane keeps only a faint ghost, so it never reads as a real agent
+    if (h.open) ctx.globalAlpha = 0.12;
+    if (CFG.track.reflections) drawReflection(dx, dy);
+    ctx.drawImage(COMP, dx, dy);
+    ctx.globalAlpha = 1;
+
+    // dust from hooves leaving the ground at speed
+    if (!reduced) {
+      for (let l = 0; l < 4; l++) {
+        const st = g.legs[l].st;
+        if (h.prevSt[l] && !st && pose.speed > 2) {
+          const tip = g.legs[l].pts[4];
+          const count = Math.round(2 + pose.gallop * 5);
+          if (CFG.track.dust) for (let q = 0; q < count; q++) h.dust.push({ x: originX + tip[0] * S, y: groundY - Math.max(0, tip[1]) * S, vx: -pose.speed * S * (0.55 + rnd() * 0.5), vy: -(0.6 + rnd() * 1.6) * S, life: 0.5 + rnd() * 0.5, age: 0 });
+        }
+        h.prevSt[l] = st;
+      }
+      for (let q = h.dust.length - 1; q >= 0; q--) {
+        const p = h.dust[q]; p.age += dt;
+        if (p.age > p.life) { h.dust.splice(q, 1); continue; }
+        p.vy += 6 * S * dt; p.x += p.vx * dt; p.y = Math.min(groundY, p.y + p.vy * dt);
+        ctx.fillStyle = `rgba(214,206,192,${0.45 * (1 - p.age / p.life)})`;
+        const s = 1.4 * dpr; ctx.fillRect(p.x, p.y - s, s, s);
+      }
+    }
+    drawLabel(h, laneTop, groundY, now, drift);
+  }
+
+  // footer
+  const fy = H - L.footH * 0.42 + drift[1];
+  ctx.font = `500 ${L.fs * 0.82}px ${MONO}`; ctx.fillStyle = ink(0.55);
+  ctx.textBaseline = 'alphabetic';
+  const title = L.tv ? CFG.title : CFG.title.split('').join(' ');
+  ctx.fillText(title, L.gut + drift[0], fy);
+  let fx = L.gut + drift[0] + ctx.measureText(title).width + L.fs * 2;
+  ctx.font = `400 ${L.fs * 0.82}px ${MONO}`; ctx.fillStyle = ink(0.32);
+  const tally = `${counts.sprint} full sprint   ${counts.work} working   ${counts.rest} done`;
+  const summary = L.tv
+    ? (live ? `${liveCount} live   ${counts.sprint} sprint  ${counts.work} working  ${counts.rest} done` : `DEMO, NOT REAL AGENTS`)
+    : live
+    ? `${liveCount} live agent${liveCount === 1 ? '' : 's'}   ·   ${tally}${liveSource ? '   ·   ' + liveSource : ''}${cloudMsg ? '   ·   ' + cloudMsg : ''}`
+    : `DEMO, NOT REAL AGENTS   ·   ${tally}${demo ? '' : '   ·   held'}${cloudMsg ? '   ·   ' + cloudMsg : ''}`;
+  if (fx + ctx.measureText(summary).width < W - L.gut - L.fs * 8) ctx.fillText(summary, fx, fy);
+  const time = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  ctx.textAlign = 'right'; ctx.fillStyle = ink(0.45);
+  ctx.fillText(now < hintUntil ? 'H  controls' : time, W - L.gut + drift[0], fy);
+  ctx.textAlign = 'left';
+
+  requestAnimationFrame(frame);
+}
+
+/* ---------- input ---------- */
+function laneAt(clientY) {
+  const y = clientY * dpr;
+  const i = Math.floor((y - L.top) / L.lh);
+  return i >= 0 && i < N ? i : -1;
+}
+function cycle(h) { setState(h, STATE_ORDER[(STATE_ORDER.indexOf(h.state) + 1) % 3], true); }
+cv.addEventListener('click', e => {
+  const i = laneAt(e.clientY);
+  if (i >= 0) { cycle(horses[i]); selected = i; selectedUntil = clock() + 2.5; }
+  requestWake();
+});
+cv.addEventListener('dblclick', toggleFull);
+addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if (k >= '1' && k <= '8') { const i = +k - 1; if (i < N) { selected = i; selectedUntil = clock() + 4; } return; }
+  const map = { r: 'rest', w: 'work', s: 'sprint' };
+  if (map[k]) {
+    if (e.shiftKey || selected < 0 || clock() > selectedUntil) { if (e.shiftKey) horses.forEach(h => setState(h, map[k], true)); }
+    else { setState(horses[selected], map[k], true); selectedUntil = clock() + 2.5; }
+    return;
+  }
+  if (k === 'd') { demo = !demo; if (demo) horses.forEach(h => { h.hold = 0; }); return; }
+  if (k === 'f') { toggleFull(); return; }
+  if (k === 'c') { cloudAsk(); return; }
+  if (k === 'h' || k === '?') { helpEl.hidden = !helpEl.hidden; return; }
+  if (k === 'escape') helpEl.hidden = true;
+});
+function toggleFull() {
+  try {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    else document.documentElement.requestFullscreen().catch(() => {});
+  } catch (_) {}
+}
+let wake = null;
+function requestWake() {
+  try { if (!wake && navigator.wakeLock) navigator.wakeLock.request('screen').then(w => { wake = w; w.addEventListener('release', () => { wake = null; }); }).catch(() => {}); } catch (_) {}
+}
+let idleTimer = 0;
+addEventListener('mousemove', () => { document.body.classList.remove('idle'); clearTimeout(idleTimer); idleTimer = setTimeout(() => document.body.classList.add('idle'), 2500); });
+
+/* ---------- live status ----------
+   Two real sources, merged into one race:
+   - Mac agents from the local bridge: fetched from ./status when the page is served
+     at http://127.0.0.1:4777/, or through the bridge's local MCP server
+     (host:agent-derby) when the page is open in the Claude app on that Mac.
+   - Claude Code sessions from the viewer's own session list (Claude Code Remote,
+     read-only), when the page is open on claude.ai.
+   Demo horses run only where no real source is possible (a saved copy of the page), and they say so. */
+let lastOk = 0;
+const slotOf = new Map();
+function openSlot(h) {
+  h.open = true; h.agentId = null; h.name = 'Open lane'; h.task = 'waiting for an agent'; h.note = '';
+  if (h.state !== 'rest') setState(h, 'rest', false);
+}
+function useTestRoster() {
+  live = false; liveCount = 0; liveSource = ''; demo = params.get('demo') !== '0'; slotOf.clear();
+  horses.forEach((h, i) => { h.open = false; h.agentId = null; h.note = ''; h.name = ROSTER[i].name; h.task = ROSTER[i].task; });
+  if (N !== TEST_LANES) { N = TEST_LANES; resize(); }
+}
+function applyLive(j) {
+  const now = clock(), srvNow = Number(j.now) || Date.now();
+  const list = Array.isArray(j.agents) ? j.agents.slice(0, 8) : [];
+  live = true; liveCount = list.length;
+  const want = clamp(Math.max(MIN_LANES, list.length), 1, 8);
+  const ids = new Set(list.map(a => a.id));
+  for (const [id, i] of slotOf) if (!ids.has(id) || i >= want) slotOf.delete(id);
+  const used = new Set(slotOf.values());
+  for (const a of list) {
+    if (slotOf.has(a.id)) continue;
+    for (let i = 0; i < want; i++) if (!used.has(i)) { slotOf.set(a.id, i); used.add(i); break; }
+  }
+  for (let i = 0; i < 8; i++) if (!used.has(i) && !horses[i].open) openSlot(horses[i]);
+  for (const a of list) {
+    const i = slotOf.get(a.id); if (i === undefined) continue;
+    const h = horses[i];
+    h.open = false; h.agentId = a.id;
+    const nm = String(a.name || 'Agent'); h.name = String(CFG.labels.rename[nm] || nm).slice(0, 28);
+    h.task = String(a.task || '').slice(0, 40);
+    h.note = a.note ? String(a.note).slice(0, 24) : '';
+    const s = STATE_ORDER.includes(a.state) ? a.state : 'rest';
+    if (now > h.hold) {
+      if (h.state !== s) setState(h, s, false);
+      if (a.since) h.since = now - Math.max(0, (srvNow - Number(a.since)) / 1000);
+    }
+  }
+  if (want !== N) { N = want; resize(); }
+}
+
+// null = source not reachable, [] = reachable with nothing running
+let macAgents = null, cloudAgents = null, macMsg = '';
+const RANK = { sprint: 0, work: 1, rest: 2 };
+function fromBridge(j) {
+  const off = Date.now() - (Number(j && j.now) || Date.now());
+  return (Array.isArray(j && j.agents) ? j.agents : []).filter(a => a && a.id)
+    .map(a => ({ ...a, since: a.since ? Number(a.since) + off : 0, upd: Date.now() }));
+}
+function mergeLive() {
+  // Claude Code running on this Mac reports through the bridge's hooks, so skip its copy in the session list
+  const cloud = (cloudAgents || []).filter(a => !(macAgents && a.env === 'bridge'));
+  const all = [...(macAgents || []), ...cloud]
+    .sort((x, y) => (RANK[x.state] ?? 3) - (RANK[y.state] ?? 3) || (y.upd || 0) - (x.upd || 0));
+  liveSource = [macAgents ? 'Mac' : '', cloudAgents ? 'cloud' : ''].filter(Boolean).join(' + ');
+  cloudMsg = [macAgents ? '' : macMsg, cloudAgents ? '' : ccMsg].filter(Boolean).join('   ·   ')
+    || (macAgents === null && cloudAgents === null ? 'no agent sources connected' : '');
+  applyLive({ now: Date.now(), agents: all }); lastOk = clock();
+}
+
+async function poll() {
+  try {
+    const r = await fetch('status', { cache: 'no-store' });
+    if (!r.ok) throw new Error(String(r.status));
+    macAgents = fromBridge(await r.json()); lastOk = clock(); mergeLive();
+  } catch (_) { if (macAgents && clock() - lastOk > 12) { macAgents = null; macMsg = 'Mac bridge not running'; mergeLive(); } }
+  setTimeout(poll, 2000);
+}
+const onLocalhost = /^(127\.0\.0\.1|localhost|\[::1\])$/.test(location.hostname);
+// Only the bridge serves this page over plain http (on this Mac, or to a device on your Wi-Fi when sharing is on).
+const useBridge = location.protocol === 'http:' || (location.protocol === 'https:' && (onLocalhost || params.get('live') === '1'));
+const hasClaude = !!(window.claude && typeof window.claude.use === 'function');
+
+/* Claude Code sessions: working trots, keeps updating on back-to-back checks gallops,
+   waiting on you stands. */
+const CC = 'Claude Code Remote', CC_TOOL = 'list_sessions', CC_IN = { limit: 40 };
+const ccSeen = new Map();
+let ccMcp = null, ccWatch = null, ccMsg = '';
+function ccRows(p) {
+  const d = p && (p.ccr || p);
+  return Array.isArray(d && d.data) ? d.data : Array.isArray(d && d.sessions) ? d.sessions : Array.isArray(d) ? d : [];
+}
+function ccAgents(rows) {
+  const nowMs = Date.now(), out = [], keep = new Set();
+  for (const r of rows) {
+    if (!r || typeof r.id !== 'string' || r.session_status === 'SESSION_STATUS_ARCHIVED') continue;
+    const b = String(r.status_bucket || '').replace('SESSION_STATUS_BUCKET_', '');
+    const upd = Date.parse(r.updated_at) || 0, age = (nowMs - upd) / 60000;
+    const working = b === 'WORKING' || (!b && r.session_status === 'SESSION_STATUS_RUNNING');
+    const waiting = b === 'BLOCKED' || b === 'REVIEW_READY';
+    if (!working && (waiting ? age > 24 * 60 : age > 30)) continue;
+    const prev = ccSeen.get(r.id);
+    let streak = 0;
+    if (working && prev) streak = upd > prev.upd ? prev.streak + 1 : Math.max(0, prev.streak - 1);
+    const state = working ? (streak >= 2 ? 'sprint' : 'work') : 'rest';
+    const note = working ? '' : waiting ? 'waiting on you' : b === 'FAILED' ? 'stopped on an error' : '';
+    const kind = working ? 'w' : 'r:' + note;
+    const since = prev && prev.kind === kind ? prev.since : (working ? nowMs : upd || nowMs);
+    ccSeen.set(r.id, { upd, streak, kind, since }); keep.add(r.id);
+    out.push({ id: 'cc:' + r.id, name: r.title || 'Claude Code', task: r.environment_kind === 'bridge' ? 'Claude Code on your Mac' : 'Claude Code in the cloud',
+      state, note, since, upd, env: r.environment_kind });
+  }
+  for (const id of ccSeen.keys()) if (!keep.has(id)) ccSeen.delete(id);
+  return out;
+}
+function ccApply(result) { cloudAgents = ccAgents(ccRows(result && result.payload)); ccMsg = ''; mergeLive(); }
+function ccFail(err) {
+  const msg = {
+    needs_reauth: 'reconnect Claude Code Remote in claude.ai settings',
+    server_not_connected: 'add Claude Code Remote in claude.ai settings',
+    selection_required: 'choose which Claude Code Remote to use',
+    approval_required: 'press C to show your Claude Code sessions',
+    consent_required: 'press C to show your Claude Code sessions',
+    not_in_manifest: 'Claude Code sessions are off for this page',
+    blocked_by_policy: 'your organization blocks Claude Code sessions here',
+  }[err && err.code];
+  if (msg) { cloudAgents = null; ccSeen.clear(); ccMsg = msg; mergeLive(); }
+  else if (cloudAgents && clock() - lastOk > 120) { cloudAgents = null; ccMsg = 'Claude Code sessions unreachable just now'; mergeLive(); }
+}
+function ccStartWatch() {
+  if (!ccMcp || ccWatch) return;
+  try {
+    ccWatch = ccMcp.watchTool(CC, CC_TOOL, CC_IN, ev => { if (ev.type === 'data') ccApply(ev.result); else ccFail(ev.error); }, { refetchInterval: 30000 });
+  } catch (_) { ccWatch = null; }
+}
+async function cloudAsk() {
+  if (!ccMcp) return;
+  try { ccApply(await ccMcp.callTool(CC, CC_TOOL, CC_IN)); ccStartWatch(); }
+  catch (e) { ccFail(e); }
+}
+
+/* Mac agents through the Claude app: the bridge's local MCP server, read-only. */
+const HOST = 'host:agent-derby', HOST_TOOL = 'get_status';
+async function hostPoll() {
+  let next = 5000;
+  try {
+    const r = await ccMcp.callTool(HOST, HOST_TOOL, {}, { cache: false });
+    macAgents = fromBridge(r && r.payload); macMsg = ''; mergeLive();
+  } catch (e) {
+    const code = e && e.code;
+    if (code === 'tool_error') { macMsg = 'Mac bridge not running'; next = 10000; }
+    else { macMsg = ''; next = 60000; } // not in the Claude app, or the local server isn't set up
+    if (macAgents !== null) { macAgents = null; mergeLive(); }
+  }
+  setTimeout(hostPoll, next);
+}
+
+if (useBridge) { fetch('config', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).then(applyConfig).catch(() => {}); poll(); }
+else if (hasClaude) {
+  window.claude.use('mcp').then(m => {
+    if (!m) { ccMsg = 'open this page on claude.ai to see your agents'; mergeLive(); return; }
+    ccMcp = m; cloudAsk();
+    if (!useBridge) hostPoll();
+  }).catch(() => {});
+}
+// Wherever a real source is possible the race shows only real agents, never demo horses.
+if (useBridge || hasClaude) { applyLive({ now: Date.now(), agents: [] }); cloudMsg = 'connecting'; }
+
+addEventListener('resize', resize);
+resize();
+requestAnimationFrame(frame);
+})();
+</script>
+
+</body></html>

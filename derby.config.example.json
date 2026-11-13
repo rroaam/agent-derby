@@ -1,0 +1,19 @@
+{
+  "port": 4777,
+  "shareOnWifi": false,
+  "sprintToolCallsPerMinute": 12,
+  "keepDoneMinutes": 30,
+  "staleMinutes": 10,
+  "xcode": true,
+  "watch": [
+    { "agent": "my-bot", "name": "My Bot", "task": "bots", "match": "PART-OF-YOUR-BOT-COMMAND" }
+  ],
+  "page": {
+    "layout": "auto",
+    "title": "AGENT DERBY",
+    "theme": { "background": "#000000", "ink": "#ECE9E2" },
+    "horses": ["chrome", "thermal", "type", "dots", "glass", "leopard", "cobalt", "glitter"],
+    "track": { "lines": true, "reflections": true, "dust": true },
+    "labels": { "showTask": true, "showTimer": true, "rename": { "Claude Code": "Claude" } }
+  }
+}
