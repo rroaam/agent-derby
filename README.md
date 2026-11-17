@@ -11,6 +11,7 @@ A horse race for your AI coding agents. Every agent gets a lane. A horse that's 
 | File | What it does |
 | --- | --- |
 | `index.html` | The race. One self-contained page, no build step. |
+| `phone.html` | The phone view, served by the bridge at /phone. |
 | `bridge.mjs` | A tiny local server (Node 18+, no dependencies). It collects agent status and serves the page at http://127.0.0.1:4777/. |
 | `hook.sh` | The hook that Claude Code and Cursor call to report status. |
 | `setup.mjs` | Adds or removes the hooks for you. It backs up each settings file first. |
@@ -20,28 +21,43 @@ A horse race for your AI coding agents. Every agent gets a lane. A horse that's 
 | `xcode-build-*.sh` | Optional Xcode behaviors for build started and finished. |
 | `derby.config.example.json` | Every setting, with defaults. Copy it to `derby.config.json`. |
 
-## Quick start (macOS or Linux)
+## Quick start
+
+You need a Mac and [Node](https://nodejs.org) 18 or newer.
 
 ```sh
-git clone <this repo> ~/agent-derby
+git clone https://github.com/rroaam/agent-derby.git ~/agent-derby
 cd ~/agent-derby
-cp derby.config.example.json derby.config.json   # optional, defaults work without it
-node bridge.mjs
+node setup.mjs          # adds the hooks for Claude Code, Cursor and the Claude app
+bash autostart.sh on    # starts the bridge now, at every login, and again if it stops
 ```
 
-Open http://127.0.0.1:4777/. Until an agent reports in, lanes show as open. Open `index.html` straight from disk and you get labeled demo horses instead.
+Then open:
 
-### Start at login (macOS)
+- **Big screen:** http://127.0.0.1:4777/
+- **Phone view:** http://127.0.0.1:4777/phone (see Phone view below to open it on your phone)
 
-Stop the bridge you started by hand first (Control+C), since only one can use the port. Then:
+Restart any open Claude Code or Cursor sessions so they pick up the hooks. Until an agent reports in, lanes show as open. Open `index.html` straight from disk and you get labeled demo horses instead.
 
-```sh
-~/agent-derby/autostart.sh on       # start now, at every login, and again if it stops
-~/agent-derby/autostart.sh status   # is it on, and is the page answering?
-~/agent-derby/autostart.sh off      # stop it and remove the login item
-```
+`bash autostart.sh status` tells you if it's running, and `bash autostart.sh off` stops it and removes the login item. It writes a LaunchAgent at `~/Library/LaunchAgents/com.agentderby.bridge.plist` using whichever `node` is on your PATH, and logs to `bridge.log` in the folder. Run `on` again after editing `derby.config.json` or switching Node versions. `node setup.mjs remove` takes the hooks out again.
 
-It writes a LaunchAgent at `~/Library/LaunchAgents/com.agentderby.bridge.plist` using whichever `node` is on your PATH, and logs to `bridge.log` in the folder. Run `on` again after editing `derby.config.json` or switching Node versions.
+On Linux, skip autostart and run `node bridge.mjs` instead.
+
+<!-- phone-view -->
+## Phone view
+
+A portrait page for your phone: every agent with its horse, its state, calls per minute and how long since it last did something. Tap an agent for a chart of its last 15 minutes. It reads the same live status as the big screen.
+
+![The phone view with demo horses](docs/phone.png)
+
+*The picture shows demo horses, labelled DEMO on the page. Real agents replace them once the bridge is running.*
+
+1. Set `"shareOnWifi": true` in `derby.config.json` (copy `derby.config.example.json` if you don't have one) and run `bash autostart.sh on` again.
+2. On your phone, on the same Wi-Fi, open the address the bridge prints, with `/phone` on the end, like http://your-computer.local:4777/phone.
+3. In Safari, Share > Add to Home Screen opens it full screen.
+
+Pick Grass, Off-white or Oil at the bottom of the page. Add `?demo=1` to the address to see eight labelled test horses at different speeds. Wi-Fi sharing works as described under Raspberry Pi below: home network only, read only.
+<!-- /phone-view -->
 
 ## Hook up your agents
 
@@ -113,7 +129,7 @@ Everything lives in `derby.config.json`. Every key is optional.
 | `watch` | `[]` | Processes to show as horses: `agent` (id), `name`, `task`, `match` (part of the command line). |
 | `testflight` | off | Read-only TestFlight build status, see above. |
 | `page.layout` | `"auto"` | `"auto"`, `"32x9"` or `"4x3"`. A `?layout=` in the address wins. |
-| `page.horseStyle` | `"dots"` | `dots`, `dither`, `ascii`, `pixels` or `classic`. See Looks below. |
+| `page.horseStyle` | `"pixels"` | `pixels` or `dots`. See Looks below. |
 | `page.palette` | `"lanes"` | `lanes` (a color per lane), `amber`, `green`, `white`, `ice`, or one 6-digit hex color. |
 | `page.crtOverlay` | `0.15` | CRT layer strength, 0 (off) to 1. Defaults to 0.25 on the 4:3 layout. |
 | `page.title` | `"AGENT DERBY"` | Text in the footer. |
@@ -131,19 +147,18 @@ The page reads the `page` section from the bridge at `/config` when it loads, so
 
 ## Looks
 
-The horses are drawn in one of five looks. Press V on the page to flip through them, or pick one in settings:
+The horses are drawn in one of two looks. Press V on the page to switch, or pick one in settings:
 
-- **dots** (the default): glowing LED dots with a soft bloom.
-- **dither**: 1-bit ordered dither, like an old Mac screen.
-- **ascii**: the horse built from text characters, brighter parts in denser characters.
-- **pixels**: chunky pixels in four shades.
-- **classic**: the original textured horses.
+- **pixels** (the default): a sprite on a fixed grid of square cells, in four tones of the lane color, lit from the top left.
+- **dots**: the same grid as an LED matrix, round points with a hot core and black between them.
 
-The state shows in the light itself. A done horse thins out to a few dim, twinkling dots. A working horse fills in. A horse at full sprint glows brightest and leaves a trail of points behind it. A soft CRT layer (scanlines, a vignette, a slow rolling band and a faint flicker) sits over everything at about 15%, a bit heavier on the 4:3 layout.
+Three older looks (`dither`, `ascii`, `classic`) are not up to `docs/STYLE.md` yet. They are off the V key and settings, and still open with `?style=` for anyone working on them.
 
-The gallop is traced from Eadweard Muybridge's 1878 photographs *The Horse in Motion* (Sallie Gardner at a gallop, Palo Alto, 19 June 1878). The scan used is the Library of Congress copy on Wikimedia Commons, which is in the public domain. Each of the 11 gallop frames was cut out, the rider removed, and the outline stored inside the page as plain shape data, so every look (dots, dither, ascii, pixels, classic) is drawn from Muybridge's horse. The trot and the resting horse are still drawn by code. Credit: Eadweard Muybridge, *The Horse in Motion*, 1878.
+The state shows in the light itself. A done horse stands dim, thinned to an even lattice inside a solid outline, with a slow twinkle. A working horse is solid and steady. A horse at full sprint is brightest and sheds a short trail of points off its tail. A soft screen layer (a fine grid locked to the cells, a vignette, a slow rolling band and a faint flicker) sits over everything at about 15%, a bit heavier on the 4:3 layout.
 
-If the page runs slowly (a Raspberry Pi, a very large screen), it drops the bloom and reflections first, then uses coarser cells, and comes back up when frames are fast again.
+The gallop is traced from Eadweard Muybridge's 1878 photographs *The Horse in Motion* (Sallie Gardner at a gallop, Palo Alto, 19 June 1878). The scan used is the Library of Congress copy on Wikimedia Commons, which is in the public domain. Each of the 11 gallop frames was cut out, the rider removed, and the outline stored inside the page as plain shape data, so every look is drawn from Muybridge's horse. On the pixel grid a small ear is added by code, because the photographs show the ears laid flat. The trot and the resting horse are still drawn by code. Credit: Eadweard Muybridge, *The Horse in Motion*, 1878.
+
+If the page runs slowly (a Raspberry Pi, a very large screen), it drops the bloom first, then the reflections, then uses coarser cells, and comes back up when frames are fast again.
 
 ![The five looks](docs/looks.png)
 
@@ -160,4 +175,4 @@ Everything runs on your own computer. The bridge listens on 127.0.0.1 only unles
 MIT. See [LICENSE](LICENSE).
 
 ## Improving the visuals with Claude Code
-This folder is set up for Claude Code. `CLAUDE.md` holds the project rules, `docs/STYLE.md` the art direction and `docs/MOTION.md` the motion rules. `npm run qa` takes headless screenshots and motion contact sheets into `docs/qa/`, and two review agents (`design-critic`, `motion-reviewer`) judge them. Start a session with `claude --model claude-fable-5-2` and paste the prompt in `docs/START-PROMPT.md`.
+This folder is set up for Claude Code. `CLAUDE.md` holds the project rules, `docs/STYLE.md` the art direction and `docs/MOTION.md` the motion rules. `npm run qa` takes headless screenshots, 1:1 close-ups and motion contact sheets (one gait cycle per state, plus the changes between states) into `docs/qa/`, and two review agents (`design-critic`, `motion-reviewer`) judge them. Start a session with `claude --model claude-fable-5-2` and paste the prompt in `docs/START-PROMPT.md`.

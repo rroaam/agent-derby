@@ -1,0 +1,706 @@
+<!doctype html>
+<html lang="en" data-bg="grass">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Derby">
+<meta name="theme-color" content="#25602F">
+<meta name="color-scheme" content="dark">
+<link rel="manifest" href="/phone.webmanifest">
+<link rel="apple-touch-icon" href="/phone-icon-180.png">
+<link rel="icon" href="/phone-icon-180.png">
+<title>Agent Derby</title>
+<style>
+  :root {
+    --bg: #000;
+    --panel: #0E0E0D;
+    --ink: #ECE9E2;
+    --dim: rgba(244, 241, 234, 0.76);
+    --mute: rgba(244, 241, 234, 0.56);
+    --faint: rgba(244, 241, 234, 0.16);
+    --glass: rgba(8, 8, 10, 0.58);
+    --blur: blur(22px) saturate(1.25);
+    --cell: 7px;
+    --sheet: rgba(10, 10, 12, 0.78);
+    --gridline: rgba(0, 0, 0, 0.34);
+    --amber: #FFB547;
+    --font: "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
+    --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+    --padx: max(20px, env(safe-area-inset-left));
+  }
+  /* off-white: paper with a faint pixel weave; dark ink, deeper lane colors */
+  :root[data-bg="paper"] { --bg: #EEEAE0; --ink: #16150F; --dim: rgba(22, 21, 15, 0.7); --mute: rgba(22, 21, 15, 0.52);
+    --faint: rgba(22, 21, 15, 0.13); --glass: rgba(255, 255, 255, 0.45); --sheet: rgba(246, 243, 236, 0.95);
+    --gridline: rgba(22, 21, 15, 0.05); --amber: #A35400; }
+  /* derby grass: mowed turf stripes; cream ink */
+  :root[data-bg="grass"] { --bg: #25602F; --ink: #FBF8F0; --dim: rgba(251, 248, 240, 0.86); --mute: rgba(251, 248, 240, 0.66);
+    --faint: rgba(251, 248, 240, 0.22); --glass: transparent; --blur: none; --sheet: rgba(37, 96, 47, 0.97);
+    --gridline: rgba(0, 0, 0, 0.08); --amber: #FFC85C; }
+  /* on grass nothing sits in a box: the turf runs edge to edge under the text */
+  :root[data-bg="grass"] .scrim { background: rgba(0, 0, 0, 0.32); }
+  :root[data-bg="grass"] footer span { padding-left: 0; padding-right: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { background: var(--bg); }
+  body { background: transparent; color: var(--ink); position: relative; }
+  /* the moving pixel gradient: a tiny canvas scaled up, with a dark grid between the cells so it reads as pixels */
+  #oil { position: fixed; left: 0; top: 0; z-index: -2; image-rendering: pixelated; image-rendering: crisp-edges; }
+  .pixgrid { position: fixed; inset: 0; z-index: -1; pointer-events: none;
+    background-image: linear-gradient(var(--gridline) 1px, transparent 1px), linear-gradient(90deg, var(--gridline) 1px, transparent 1px);
+    background-size: var(--cell) var(--cell); }
+  ul#list, .offline, .empty, .tally, .demo, footer span { -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); }
+  body {
+    font-family: var(--font);
+    font-feature-settings: "tnum" 1;
+    -webkit-font-smoothing: antialiased;
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+    min-height: 100vh; min-height: 100dvh;
+    padding: calc(env(safe-area-inset-top) + 18px) max(20px, env(safe-area-inset-right)) calc(env(safe-area-inset-bottom) + 18px) var(--padx);
+    display: flex; flex-direction: column;
+    overflow-x: hidden;
+  }
+  body.sheet-open { overflow: hidden; }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+
+  header { display: flex; align-items: center; justify-content: space-between; height: 22px; }
+  .mark { font-size: 11px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; }
+  .live { display: flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); }
+  .live i { width: 6px; height: 6px; background: var(--dim); border-radius: 50%; }
+  .live.on i { background: var(--ink); animation: beat 2s ease-in-out infinite; }
+  .live.off { color: var(--amber); }
+  .live.off i { background: var(--amber); }
+  @keyframes beat { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+
+  .demo { display: none; margin-top: 14px; background: var(--glass); border: 1px solid var(--amber); color: var(--amber); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.16em; text-transform: uppercase; padding: 8px 10px; }
+  body.is-demo .demo { display: block; }
+
+  /* hero: one number, then the three counts that matter */
+  .hero { padding: 40px 0 28px; }
+  .big { display: flex; align-items: baseline; gap: 12px; transition: opacity 0.5s; }
+  .big b { font-size: 96px; line-height: 0.8; font-weight: 700; letter-spacing: -0.06em; display: inline-block; }
+  .big b.bump { animation: bump 0.5s var(--ease); }
+  @keyframes bump { from { opacity: 0; transform: translateY(10px); } }
+  .big span { font-size: 19px; font-weight: 500; letter-spacing: -0.01em; }
+  .tally { display: inline-flex; gap: 18px; margin-top: 18px; font-size: 13px; color: var(--dim); background: var(--glass); padding: 8px 12px; margin-left: -12px; }
+  .tally b { font-weight: 600; color: var(--ink); margin-right: 5px; }
+  .tally .w { color: var(--amber); }
+  .tally .w b { color: var(--amber); }
+  .tally .w[hidden] { display: none; }
+  .sub { margin-top: 18px; font-size: 15px; color: var(--ink); }
+  body:not(.has-data) .big { opacity: 0.2; }
+  body:not(.has-data) .tally { display: none; }
+  body.has-data .sub { display: none; }
+
+  /* offline: what to check, in order */
+  .offline { display: none; background: var(--glass); border-top: 1px solid var(--amber); padding: 18px 14px 22px; margin: 0 -14px 14px; }
+  body.is-offline .offline { display: block; }
+  .offline h2 { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; color: var(--amber); }
+  .offline .seen { margin-top: 4px; font-size: 13px; color: var(--dim); }
+  .offline ol { list-style: none; counter-reset: s; margin-top: 16px; }
+  .offline li { counter-increment: s; display: grid; grid-template-columns: 26px 1fr; padding: 7px 0; font-size: 15px; line-height: 1.35; }
+  .offline li::before { content: "0" counter(s); font-size: 12px; color: var(--mute); padding-top: 2px; }
+  .offline code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; color: var(--ink); background: var(--faint); padding: 2px 5px; }
+  .offline .retry { margin-top: 14px; border: 1px solid var(--faint); padding: 11px 16px; font-size: 14px; font-weight: 600; }
+  .offline .retry:active { background: var(--faint); }
+  body.is-offline ul#list .row { opacity: 0.4; }
+  body.is-offline .big, body.is-offline .tally { opacity: 0.35; }
+
+  /* the board */
+  ul#list { list-style: none; background: var(--glass); padding: 0 14px; margin: 0 -14px; transition: opacity 0.4s; }
+  ul#list:empty { display: none; }
+  ul#list .row:last-child { border-bottom: 0; }
+  .row { position: relative; display: grid; grid-template-columns: 80px 1fr auto; align-items: center; column-gap: 14px;
+    min-height: 78px; padding: 12px 0; border-bottom: 1px solid var(--faint); cursor: pointer; }
+  .row::after { content: ""; position: absolute; left: 0; bottom: -1px; height: 1px; width: calc(var(--act, 0) * 100%);
+    background: var(--lane); opacity: 0.9; transition: width 0.9s var(--ease); }
+  .row:active { background: var(--faint); }
+  .row.enter { animation: enter 0.5s var(--ease) both; }
+  @keyframes enter { from { opacity: 0; transform: translateY(8px); } }
+  .row canvas { width: 80px; height: 46px; display: block; image-rendering: pixelated; }
+  .who { min-width: 0; }
+  .name { font-size: 17px; font-weight: 600; letter-spacing: -0.015em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .task { margin-top: 3px; font-size: 13px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .what { text-align: right; }
+  .state { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; white-space: nowrap; }
+  .meta { margin-top: 3px; font-size: 12px; color: var(--dim); white-space: nowrap; }
+  .row.rest .name, .row.rest .state { color: var(--dim); }
+  .row.wait .state { color: var(--amber); }
+
+  /* nobody racing, but the Mac is there */
+  .empty { display: none; background: var(--glass); padding: 26px 14px 28px; margin: 0 -14px; }
+  .empty canvas { width: 120px; height: 69px; display: block; image-rendering: pixelated; margin-bottom: 22px; }
+  .empty h2 { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
+  .empty p { margin-top: 8px; font-size: 15px; line-height: 1.4; color: var(--dim); max-width: 30ch; }
+  body.is-empty:not(.is-offline) .empty { display: block; }
+
+  footer { padding-top: 14px; display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: var(--ink); }
+  footer span { background: var(--glass); padding: 4px 8px; }
+  footer span:empty { display: none; }
+  .bgpick { margin-top: auto; padding-top: 32px; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim); }
+  .bgpick > span { margin-right: 6px; }
+  .bgpick button { padding: 8px 12px; font-size: 12px; font-weight: 600; letter-spacing: 0.02em; border: 1px solid var(--faint);
+    background: var(--glass); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); }
+  .bgpick button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  footer span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  footer span:last-child { white-space: nowrap; }
+
+  /* detail sheet */
+  .scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.62); opacity: 0; pointer-events: none; transition: opacity 0.35s var(--ease); z-index: 9; }
+  .sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; max-height: 92dvh; overflow-y: auto; overscroll-behavior: contain;
+    background: var(--sheet); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); border-top: 1px solid var(--faint);
+    padding: 10px max(20px, env(safe-area-inset-right)) calc(env(safe-area-inset-bottom) + 24px) var(--padx);
+    transform: translateY(104%); transition: transform 0.42s var(--ease); }
+  body.sheet-open .scrim { opacity: 1; pointer-events: auto; }
+  body.sheet-open .sheet { transform: none; }
+  .sheet.drag { transition: none; }
+  .grab { display: block; width: 36px; height: 4px; margin: 0 auto 14px; background: var(--mute); border-radius: 2px; }
+  .sheet-top { display: flex; justify-content: space-between; align-items: center; font-size: 11px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
+  .sheet-top button { font-size: 13px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--ink); padding: 6px 0 6px 12px; }
+  .sheet canvas.hero-horse { width: 76%; height: auto; aspect-ratio: 40 / 23; display: block; image-rendering: pixelated; margin: 18px 0 8px; }
+  .sheet h3 { font-size: 30px; font-weight: 700; letter-spacing: -0.035em; line-height: 1.05; }
+  .sheet .s-task { margin-top: 5px; font-size: 15px; color: var(--dim); word-break: break-word; }
+  .sheet .gone { display: none; margin-top: 12px; font-size: 13px; color: var(--amber); }
+  .sheet.is-gone .gone { display: block; }
+  .facts { display: grid; grid-template-columns: 1fr 1fr; margin-top: 22px; border-top: 1px solid var(--faint); }
+  .facts div { padding: 12px 0; border-bottom: 1px solid var(--faint); min-width: 0; }
+  .facts div:nth-child(odd) { padding-right: 12px; }
+  .facts dt { font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--mute); }
+  .facts dd { margin-top: 5px; font-size: 17px; font-weight: 600; letter-spacing: -0.015em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .facts dd.amber { color: var(--amber); }
+  .chart-head { display: flex; justify-content: space-between; margin-top: 24px; font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--mute); }
+  .sheet canvas.chart { width: 100%; height: 64px; display: block; image-rendering: pixelated; margin-top: 12px; }
+  .chart-foot { display: flex; justify-content: space-between; margin-top: 6px; font-size: 11px; color: var(--mute); }
+  .chart-note { margin-top: 10px; font-size: 12px; color: var(--mute); }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<canvas id="oil"></canvas><div class="pixgrid"></div>
+<header>
+  <div class="mark">Agent Derby</div>
+  <div class="live" id="live"><i></i><span id="liveText">Connecting</span></div>
+</header>
+<div class="demo">Demo · test horses, not your agents</div>
+
+<section class="hero">
+  <div class="big"><b id="count">0</b><span>running</span></div>
+  <div class="tally" id="tally">
+    <span><b id="nSprint">0</b>sprinting</span>
+    <span><b id="nWork">0</b>working</span>
+    <span class="w" id="wWait" hidden><b id="nWait">0</b>waiting on you</span>
+  </div>
+  <div class="sub" id="sub">Connecting to your Mac</div>
+</section>
+
+<section class="offline" id="offline">
+  <h2>Can't reach your Mac</h2>
+  <div class="seen" id="seen">It hasn't answered yet.</div>
+  <ol>
+    <li><span>Your Mac is awake.</span></li>
+    <li><span>Your phone is on the same Wi-Fi as your Mac.</span></li>
+    <li><span>Agent Derby is on. On the Mac, run <code>bash ~/agent-derby/autostart.sh on</code></span></li>
+  </ol>
+  <button class="retry" id="retry">Try again</button>
+</section>
+
+<ul id="list"></ul>
+<div class="empty">
+  <canvas id="emptyHorse"></canvas>
+  <h2>No agents on the track</h2>
+  <p>Your Mac is connected. Start a Claude Code or Cursor session and its horse comes out here.</p>
+</div>
+
+<div class="bgpick" role="group" aria-label="Background"><span>Background</span><button data-bg="grass">Grass</button><button data-bg="paper">Off-white</button><button data-bg="oil">Oil</button></div>
+<footer><span id="host"></span><span id="ago"></span></footer>
+
+<div class="scrim" id="scrim"></div>
+<section class="sheet" id="sheet" aria-modal="true" role="dialog" aria-label="Agent detail">
+  <span class="grab"></span>
+  <div class="sheet-top"><span id="sLane">Agent</span><button id="close">Close</button></div>
+  <canvas class="hero-horse" id="sHorse"></canvas>
+  <h3 id="sName"></h3>
+  <div class="s-task" id="sTask"></div>
+  <div class="gone">This agent has left the track. Showing what it was last doing.</div>
+  <dl class="facts">
+    <div><dt>State</dt><dd id="sState"></dd></div>
+    <div><dt>For</dt><dd id="sFor"></dd></div>
+    <div><dt>Last activity</dt><dd id="sLast"></dd></div>
+    <div><dt id="sRateLabel">Calls / min</dt><dd id="sRate"></dd></div>
+    <div><dt>Source</dt><dd id="sSource"></dd></div>
+    <div><dt id="sSumLabel">Last 15 min</dt><dd id="sSum"></dd></div>
+  </dl>
+  <div class="chart-head"><span id="cTitle">Tool calls</span><span>Last 15 min</span></div>
+  <canvas class="chart" id="sChart"></canvas>
+  <div class="chart-foot"><span>15 min ago</span><span id="cMax"></span><span>now</span></div>
+  <div class="chart-note" id="cNote"></div>
+</section>
+
+<script>
+/* Agent Derby, phone view. Reads the same /status the big screen reads, one row per agent;
+   tap a row for its detail and the last 15 minutes of activity (/phone-history, kept by the bridge).
+   Real data only. ?demo=1 shows labelled test horses for checking the layout. */
+'use strict';
+const DEMO = new URLSearchParams(location.search).get('demo') === '1';
+const POLL_MS = 2000, OFFLINE_MS = 7000, HIST_N = 45, HIST_STEP = 20000;
+const LED = ['#FFB547', '#CFE8FF', '#6BFF8E', '#FF6B5A', '#5FE3FF', '#FFD36B', '#B48CFF', '#FF8FD0'];
+const THEMES = {
+  oil:   { pal: LED, ink: '#ECE9E2', meta: '#1a1030' },
+  grass: { pal: ['#FFB547', '#CFE8FF', '#FFF1CC', '#FF6B5A', '#5FE3FF', '#FFD36B', '#D7C4FF', '#FF9FD6'], ink: '#FBF8F0', meta: '#25602F' },
+  paper: { pal: ['#C2410C', '#1D4ED8', '#15803D', '#B91C1C', '#0E7490', '#A16207', '#6D28D9', '#BE185D'], ink: '#16150F', meta: '#EEEAE0' },
+};
+const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch { /* private mode */ } } };
+let BG = (() => { const q = new URLSearchParams(location.search).get('bg'), s = store.get('derby-phone-bg');
+  return THEMES[q] ? q : THEMES[s] ? s : 'grass'; })();
+let THEME = THEMES[BG];
+document.documentElement.dataset.bg = BG;
+const $ = id => document.getElementById(id);
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* ---------- pixel horse, from the traced Muybridge plate (Library of Congress scan, public domain) ---------- */
+const MUY = {
+  k: 0.0036, x0: 874.11, step: 0.6609, cycle: 9.5,
+  ph: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0.5],
+  lift: [[10, -0.0], [5, -1.145], [6, -0.803], [8, 0.275]],   // hoof leaving the ground: [frame, x in metres]
+  data: [
+  ['U0KeUyKhUeKpTYLUS1LhSkLqSQLvSMLsSLLdRzLHRuK_RWK2RVKpROKjROKZRLKWQqKNQpKFQhJ9QhJ3QbJzQBJtPiJsPQJ0OZJkN8JmN6JkN9JeN7JaNsJZNJJcMIJqLqJrLMJlKxJcKQJYJSJFJFJEI6I5IxI4InIzIRIwIHIrIDImH9ImH6IhH7IcIAIXH9ITHtIQHfIRHHIfG1IuGuIsGrIlGvISG1ILG1IHG8H8G6HxG9HtHYHhHwHhIOHpIbHvIoH6I9IBJcIaJuIhKIJBKOI-KEIjKEINKHIBKfHUKaHQKGHNJOHQJJHMJIG8JLGwJMGQJKFnJCFcJFFRJBFNIyFPIoFIIhE4IhExImEsJIE3JLFAJaFMJcFQJfGbJlGhJrGjJ2GgJ2GYKrFhK3FNLCFGLCFAK8E8K5E2K5EuLAEkLPEYLWEbLPFaKyF0KcGMKaGUKhGcKtGfLIGgLVGmLvGrL5GzMEHDMNHHMcHIMqHENVGuOEGgOsGaPfGXPiGUPiGMPbFmPME9PCE0OvExOQE5N4FJNsFINoFSNjFWNZFWNNFRNEFKNDFDNKE_NeE8NuEzOXEmO9EePFETO_DwO4DgO9DWPBDUPLDWPRDRPMDMPADOO9DKPADIPLDKPPDIP0DIP3DMPrDhPnDkPYDlPSDvPXEUPcEaPbEfPgEwPpE_PuFWQTGHQ4GWRGGgRQGsRhHnRqH4R7IKSNIlSYJASeJXSmJfSjJmSpJ4S6KCTSKDTXKGTeKCTsKBTxJ8UHJ_UaJ5UiJ5UqJ9U0KM'],
+  ['UmKcUfKjT1K-TLLfSTL8SIL-SAL2R1LzRwLqRjLoRXLiROLaRPLURbLORfLIRVK_RMLAREK7RGKxRMKtRKKnRCKfQ8KhQzKbQhKWQgKKQZKCQMJ8PsJ3PSJ6PKJ-OjJzObJrNyJxNwJvNxJrNtJoNJJpMMJzL_J4LlJ3LMJsK4JdKQJIJlI-JLI9IyI1IBIeH-IXH3IRHxIQHsIIHgIHHFIPG7IZGxIXGpIPGnIIGfILGdIFGlH6GvHyGvHtHCHUHWHNHmHOH1HVIAHhIMHnIQHvIWHwIpIAIyIBI2H_I6IBJRIYJlIkJ8IuKQIyKTIsKLIOKLIBKQHzKrHbLHHPLMHKLLHDK3GvKRGWKQGPKSGLKfGAK4F3LkFeLxFSL6FQL_FMMAFFL2FBLyE8LzEtL9EaMDEcMMEuMPFQMSFTMeFUMtFRNBFINHFLNIFQNKFKNUE-NkE3NtEuNqEqNgEsNYEnNHEwNBEwMsEiMrEZMtEXM2EYM6EVNIEWNcETNiEXNqETN-EYOUEZOjEgOxEgO9EkPIE8PPFGPVFKPbFKPyE_QDE8RaFORjFZRkFlRGGNQ7GYQzGmRIG4ROHDRPHLRbHZRgH-R_IzR_I9SFJCSNJjSTJqSSJySXJ9ShKJSnKMS9KNTTKKTZKDTxKFUBKCUIJ6UTJ6UhKHUhKT','PkFjP6GEQKGOQQGOQ7F0RFFmRGFeRBFZQyFVQjFUQRFPQCFPP0FVPsFSPmFX','MmG3M4HJM9HKNKHHNgG8N_GxPJGhPPGiPZGcPZGQPNGDPFFjO7FZO7FNO1FFO0E_OtE8OlE0OWEvOIEvN3E6NvFINmFPNNFXNIFUNHFQNDFUNCFaM9FdMnFfMoFkMaFwMWF5MWGD'],
+  ['UeKVUbKZUPKfULKlUCKoTcLJTJLWSrLmSOLxSILxSGL2R_L6R5L6R1L3R0LyR2LqRrLjRrLeRXLVRXLHRQLARHLAQ6K5Q6KzRBKqRBKmQzKZQeKZQUKUQUKHQJKCQJJ7QGJ4PuJ0PbJ1PSJ9PNJ-OaJrOAJsNsJzNlJsNfJrMuJwL9J6LlJ5LZJ2KnJXKhJQKFJBJII6IxIyIrIzIbIuH8IeHwIQHZIEHWIAHZH7HXH3HNH5HEIGG5IKGtIJGlIAGkH2GwHoGpHmGnHhG8HOHMHMHeHSHmHaH1HjITH_IdIDIuIQI1IMJAINJLIDJ3IIKAIQKAITJ1IXJxIbJwIhJ_ItKOItKRIrKPIFKVH0KfHlKtHZLCHPLcHJLmHALdGfLHF_LFF1LIFxLZFrLtFrMrFaM7FJNBFHNOFIN1E-OLE0OWE0OfEnOkEkOxEkO8EoPeEmPoEtPrE0PvFZQAGNQVGUQqGQQ3GSROGRRaGNRjGNRyGFRzF6RuFuRfFfRLFYRCFSQ8FSQ0FZQiFVQaFPQWFHQWFBQgE9Q1E_RVE9RZFHRoFWSJFwSSGBSSGHSMGPRwGkRdGvROG9RWHFRXHORjHgRlHqRjH9RmIMR-I-SGJbSNJoSOJzSaKASoKGTIKETOKCTUJ7ToJ9T_JyUNJzUbKAUaKMUeKR','NCHANEHCNPHAN9GrOjGfO2GePOGYPSGUPWGIPXFRPVFDPKE9O8E9OmFCOcFKOOFLOJFUOAFYNqFSNnFVNwFdNxFjNkFqNMFtNDF7NBGVM-GcNDG1'],
+  ['UwJ8URKWTgLHSzLhSiLmSRLnSLLhSBLgR9LdRoLdRlLYRsLURxLNRuLKRXLGRULBRdK7RcK4RMK4RIK1RLKwRTKvRWKrRUKpREKpQ6KmQ3KfQvKaQtKWQ7KOQxKLQeKNQRKHQQJ5QMJ2QDJ2P2JxPrJwPHJzOkJpOfJiOXJhOGJiNkJrNfJoNdJiNLJiMCJvLdJtLJJmKrJVKcJJKII_JcI5IeI1IIIwH6IxHuIhHkIdHfIWHQIOHNIGGsHgGSHnGJHmGHHgGaHLGaHBGgG6G2G4HiHdH2HoIXICIgICItIKI6IMJCIFJTIBJhIBJwILJwIaKAIpKLIoKNIkKKIcKKIFKVHmKsHLLlGmLzGaL_GFMBF9MFF6MEFzMKFbMKFIMSE7MmEtM0EfM3EYM9EVNREANRD9NXD6NoDnN5DlN-DfOCDeOLDJOsDIOvDKOvDOOpDeOBD2N-D9N3EANqENNlEPNfEXNYEaM4E9MwFXM0FaNLFaNpFTNzFTN_FNOQFKOoFBO4FCO7E-O7E1PHEvPcEwPhEyPkE3PXFHO7FROsFaNhFqNJF0NEF_NEGPM_GnNFGqNrGdOuGTPLGSPfGOP9GPQIGJQ5F7RQFwRSFoRIFgQrFUQaFVQVFSQOFVQSFbQSFgQJFpP0FuPsFqPzFcQHFFQSE9QeE7REFORjFZRrFkRsFvRpF2RGGVRJGaRoGfSMGpSnGpSwGhSyGbS1FuSxFcS3FVS2FNSqFBSqE6SzEuS7EpTAEpTFE9TDFSTIFfTCF3TCGxS1HASsHDRfHJRcHMRwHsR1IGRzIdSKJJSUJjSaJnSZJuSjJ2SsJ5TOJ2TVJtTvJsT_JnUJJdUVJbUdJiUoJnUpJwUvJ2'],
+  ['UtJpUpJxUBKXT3KmTbLDTGLNS4LZSgLhSPLYSILRR0LLRrLLRoLDRsLAR1K_R3K9R1K7RXK3RVKyRdKtRcKqRVKoRRKjRGKiQ8KcQwKZQxKPQWKGQVJ6QSJ3QFJ1P7JvPiJrPJJtOhJgObJaONJYN5JYNdJgNYJfNUJZNQJYMoJcL7JmLbJlLGJfKiJKKDI9JcI5IBI5H0I2HdIpHAIOGnIAGmH7GxH2GpHkGnHYGbHAGFG0GEGpGIGmGWGoGwG6G6HEG_HBHEHDHRHRHYHSH9H5IBH5IKH_IWIMIjIPIsIJJAIGJGIMJMILJUIZJdIgKIIpKKIkKBIWJ8IFJ9HyKEHeKZG1KyGSKyGHKtF0KPFEKNE8KpEIK3DjLHDIMFDIMIDKMHDPMADYL6DbLcDbLVDkLMDqLLDxK9ELK6EaK1EjK3EyK-FCLZFqLjGHL7GjMIGeMWGOMoFxMwFcM1FXOLEtOnEaO1EgPNEQPYESPhEYPnEYPqEiPdEpPREsPGErOiE4NvFSNdFeNJF2M9GeNAGjN_GWPBGWPeGQQOGSQuGaQ7GWRYGXSBGRSDGMRwFvRlFlRiFbRaFYRUFdRLFeQ_FWQ5FGQ7E8RAE8R0FRSXGPScGRSzGMTKGETiFyTyFiTzFbUCFSUGFMUEE_UIE6UWE0UkEzUoE2UlE-UNFaUEFsTjGDTFGfSwGqS1GyS1G5StHFSnHISGHIRzHNRgHOReHRRqHyRqINRtIdSTJiSdJmSdJtSwJxTIJvTSJpTRJlTVJiTvJgT3JbUEJYUNJPUbJRUlJY'],
+  ['VYEuVUEzVCE2UsE2UHFFTsFWTOFyTLF8TLGRTQGoTQG3TKHAS_HFSPHJSEHMRyHMRuHPRwHtRqH9RvINSAIrSPI-SgJbSoJgSoJlSrJoTBJpTeJkTjJgTlJXTxJWUKJLUQJAUaI6UwI-U1JHU_JRUvJsUcKAT-KuTwK-TULMTMLTS2LbSxLYSvLSSbLQSYLHSJLGSFLBSJK7R1KzRqKzRFKhQ_KcREKVRCKRQ9KOQzKOQbKEQaJ8QPJ3QLJwPgJrPdJpPdJiPaJfPOJmOnJXOcJQN6JQNSJXNQJVNSJONPJLMrJRMNJZL3JcLXJcLAJWKiJIJ6I8I8I1IPI7HsI1HeIwHZIoHNIkHJIeHCIcG-IXGZIVGNIRGNINGRIKGgILGqIEGYH5GYHzGQHrGIHbGJHSGGHMGGHCGBG4GCGwF-GrGCGmGKGoGTGxGYG8GuHQHHHsHcH5IGILJEIVJtIeJ6IkKAIiJwIOJpH-JuGfJlGSJPF-IpFlIkFEIaE3IXEkIPEdIPETIHEFH9DoICDhIWDaIaDVIaDKIdDII8DII_DKI8DTIxDkIiDpIeDtIaD4IcD_IhEEIhELImEYIsEgIxEzJXFYJxFoKiGOK4GZLDGWLMGOLaFyLeFjLgE6LjEvLwEhLxEbL5EUMEEAMXDrMaDhMlDVMpDKMsDINnDJNnDONYDhM7DjM1DmMmD3MkD-MdEEMUESMTEYMLEhMGE6MAFFMFFnMAGDMCGrMIGwMaGvNSGdOLGTPtGQP2GTQuGZQ-GeRVGbSdF2S7FbS5FUStFOSoFISpE8StE0S2EsS8EuTFFMTLFUTRFUT6E5UMEpUTEmUrEnU-EZVKEg'],
+  ['V4JSVtJfVfJ2VGKRU0KsUkK2UhK_UbLFUGLOTtLOToLMTmLITwLATuK-TQK-TAK7SjK9SfK6SeKySjKqSqKnSiKfSXKbR7KbRxKSRhKSRYKNRWJ-RQJ5QyJyQmJrQKJoPRJMO_JKOZJLOVJIOTJCNzJDMvJRMPJVLlJOLJJPJqI4JQIuIyItIsInIRImINIjIMIeHmIcHfIYHZIQHHINHFILHHIGHFICGtH4GYHzGOHqGNHmGSHjGiHlGnHbGzHbHjHuIQH2IdH8JPIJKjIrKrIpKqIiKbICKVHPKLG3JkGYI7GGIvF9IhFlH_FIHqE9HXE3HSEvHJEsG8EyGzEwGeEhGcEbGfEVGoEUHEEYHeEfHpEfHvEnIcFLJSFxJ5GDKTGMKZGMKgGHKUF6J-FrJwFaJtFMJuErJtEjJpEdJsEXJpEBJqDrJmDiJsDRJyDNKCDQKKDIKpDIKsDMKgDcKVDlKEDnJ_DvJ9EMJ-EWKCEcKAEnKFE-KTFPKoFaK7FrLHF6LqGUL-GzMOG3MmG4NOGyOOGdPMGRPrGQQqGTRVGbRlGZRsGRR2GLSDF4SmFSSyE6TEErTNEgTOEZTXERTdEHTfD9TlD4TtDoTsDkTwDhT_DhUKDYUKDQUQDIUwDIUzDNUoDbUpDhUlDkUVDlT9D4T-D8TyEFTpETTpEYTeEiTUEwTLFGSzFnSgGSSfGaShGcTIGaUNGMVCFrVPFaVdFWViFRVgFJVmE_VyE8WFE_WIFEV5FSVnFeVcFvVNF2UhGTUYGeUJGpTTG2SgHKScHQSiHfSiIGSvIgTLI_TaJWTiJdTiJgTsJnUZJeUgJTUwJQVEJGVJJBVLI4VPI1VhI0VvI8'],
+  ['WCFOV-FRVuFUVKFTUoFcUBFvT3F4TQGNSsGrSIHESLHOSLHcSDHwSIIBS2JGS-JPTIJRTOJbTvJcT6JVT5JPT8JMUJJKUXJCUqI8UvI4UwIxU0IuVEIvVLIyVQI3VRI8VaJEVVJOU0J0UxJ7UrKAUOKoTyLBTdLLTTLLTQLFTULATAKzSkK8R-K_R6K8R7KzR_KtSIKpSKKiSHKfRtKaRfKNQ7KNQ3KKQ3J8QzJ5PtJgPUJfOnJKOQJINwJKNsJHNtJDNqJANfI_MDJRKRJQJhJFJVI-JKI7JBI0IaIrIUIjHuInHnIfHMIfG7IiGhIhGaIbGPIeGIIVFzIUFoILFrIGF5ICF-H-F6H2F8HyGJHvGOHrHXHoHwHtH5HzIKH1IgH-JMIUJwIxKCI6KKI7KMI5KLIzKBInJ2ITJwH3JuHVJrHJJmHBJPGyI7GpImGnISGhINGaIFGWHzGFG6FnGnFiGeFbGbFbGPFlGFFkF-FhFzFWFvFMF0FIG4FLH6FzIqGCJDGEJGGBIsFuIgFUH7EhHzEcHuEUHmEQHiEKHiEEHgECHKEDHED_G9DnHCDhHVDlHaDtHpD0H7EBH-EIIKEXITEeITEiIvFGI6FQJIFYJQFiJgFrKIGPK0GkLHGyLjG6LzG6L_G9MLG7NMGfNkGXOJGQO3GNPhGOPxGJQYGMQqGJQuGCQ3E-Q3EmQ6EbRAEWRDEORDD_RGD8RIDvRHDiRNDMRRDISNDISQDKSNDQSADaRoDbReDnRZD1RaD_RVEKRVEURYEaRVEeRSE-RSFiRZGSRfGXRtGXR2GSSJGQSZGKTgFnUFFcU0FBU_FAVHFEVQFEVdFBVoE7VuE7V6FCWBFJ'],
+  ['VSJZU2J5UeKOUNKkUHKwTqLJTSLUS1LWSpLMSVLPSNLLSNLDR9LBR0K5RzKsR7KoR3KjRiKgRbKYRKKTQ4KUQrKQQqJ-QoJ8QTJ7QNJzP2JtPKJnOYJROCJQNnJUNjJRNkJNNdJJMwJQLpJhKkJgJGJSITI3H-IpHsInHRIsG4I1GrI1GiInGdIoGPIyGNI5GGJBF9JDF3I8FwI7FrI3FqIzF4IiGIIXGNIQGTIOGXIKGXIGGjH_GmH6GzH0HDHyHkH0IBH_IMH_I3IZJGIoJNIrJRIxJfI3JzI6J4I3J5IzJxIpJlILJkHtJnHOJjHKIyHIIeHMIUHJIJG6IFGuH7GeHWF1HFFwG8FoGwFuGnFvGYFjGQFhF9FWF4FMF8FIGLFDGVFEGxE9HCE_IAFlIWFrIpF4I1F7JFGEJKGEJkGTKzGfK_GlLKGyLbG-LpHCMJHCM7GnNqGWOKGQPGGOPLGLPWGLPaGIPaGDPNFtPJFgOyFAOxEyOnEfOoEbOhEXOYEFOPD-OPD4OKDtOKDgOiDWOpDPOpDKOsDIPJDIPMDKPHDWO1DcOoDnOlDvOlD2OtEAOsEEO0EVO8EbO7EfPBEnPKEsPXFGP0FkQMGHQ0GVREGTRsF-SbFUSsFBTEEzTXEgTYEbTfEXTrEKTwD-T6D6UND4UTDyUWDkUaDhUrDhU9DuVAD9U8EAUkEBUXEGUHERUDEZT7EaTvEjTTE-TGFRSoFuSEGhR4GqRwG0RtHhR3H4SgIvSwJOS8JVS7JaS-JeTOJjTiJjTuJeTxJbTwJWT0JTUKJSUSJMUhJJUyI8U8I8VJJCVNJMVSJR'],
+  ['UmJsUhJ0URJ-TuKbTKLCSfLZSULbSQLWSVLQR1K5RYK6RWK2RbKwRcKqRTKfRKKdRFKVQ_KTQ0KJQaKIQNKEQMJ0P4JqPzJkPJJiO-JkO6JsO0JsN-JcNrJbNdJeNZJZNjJQNiJNM3JRLoJhLWJiKyJfKiJbKWJbJcJNJOJOJEJKJBJGIvJEIpI9IdI8IVI1H8I0H0IuHVIsHTIoHgIiHjIfHhIcHGIgHEIkHNImHPIoHNIsGxIyGUI-GJI7GHI2GKIsGWIlGfIbGhITGmIPGkIEGnH-GyH2GvHyGxHuHGHqHcHqIDHzILH5IkIDI6IQJgIvJwI5JzI4JmIZJmIDJuHoJ9HNJ6HKJPHJI3HNIlHLIcG9IWGqIPGjH1FxHoFpHiFgHfFgHZFnHUFpHGFkG4FRG6FJHEFHHaFOHxFQH4FTH_FZIGFrIOF0IRGAIiGYIqGeI-GgJSGCJeFoJcFaJiFQJUFKJPFDJOEzJTEoJYElJdEmJjErJpE2JrFAJ3FTJ1FhJgGOJeGWJgGaKRGYK7GdLFGhLOGpLiGwLtG9MAG-MLG7M1GkNMGbNqGVO1GPO7GMO2F6OqFoObFBOMErNxEhNfEeM-EhM2EbMvEbMmEnMfEpMFEaMCETMEEPMkEJM_EIOhEYOqEjOtEwO7FFPqF1PvFrPyFaPzEkP2EaP7EVP-ENP-D9QBD5QDDtQCDhQJDKQMDIRGDIRJDMRDDWQ7DZQlDaQYDmQUD1QVD9QREDQOFNQcGNREG3RJHDRKHXRRHtRxIVR-ItSJJKSaJSSYJWSRJZScJmSiJpTEJnTMJkTPJhTOJdTSJaToJbT8JTUDJNULJMUgJWUhJj'],
+  ['U-KCUxKLUkKZUCK1T0LDTxLJTiLUTDLkSrLpSfLpSPLXSBLTRkLDRiK6RdK2ReKvRXKmRYKdRGKRQsKRQhKNQgJ6QRJ1QBJrPkJuPfJ0PWJ2OiJmOdJiOUJiN8JoN5JlN7JcN5JZNVJbMVJpL4JrLUJjK0JUKWJMKGJFJsJCJOI7IiJGIaJGIOJAH9JEH5JBH6I5H-I1H8I0HcI6HbJAHWJDGxI4GsI1GrIwG1IrG7IiGvIWGvITG3IOHNH4HFHrHJHoHeHjH5HiIIHoIPHuIiHwJDH9JcIQKDIfKYIzKdI0KSIXKQIKKSH4KeHmKxHWK3HOKiHBJxG4JrG0JpGpJyGcJ-GTKYF4KqFeKqFPKtFKKzFHKzFDKqE9KnEsKzEfK-EYLEEbLEFVK4FkK5FpLfFgMDFQMUFBMjE8MlE2MeEoMmEfMxEXNAEaM-EwM1E8MsFVMSFeLmF1LhF6LhGALoGLMCGeMeG6MpG9M4G8OQGfOuGZPYGVPbGOO5FkOmFkOcFhOSFaOUFVOlFLOfE9OEEeN6EaN3ERNeD8NiDyNiDoNeDhNfDbNXDRNVDKNYDIN8DIN_DKN8DVNzDdN0DhNwDoOCD9OEEEOaEZOaEcOjEnO3E4PGE3PYEwQBEnQREpQgEzQhE8QdFPQeGIQmGQQ-GXRLGfRcGzRiHBRnHeSPIeSZIySmJXSvJdSrJlS5J5TEJ7TWJ6TgJ3TkJyTjJtTlJrT_JvUOJsUWJjUiJhU3Jt']],
+};
+const AL = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+const GW = 40, GH = 22;                 // sprite grid in cells; the track sits on row GH
+const FRAMES = (() => {
+  const paths = MUY.data.map(rings => {
+    const p = new Path2D(); const pts = [];
+    for (const r of rings) {
+      for (let i = 0; i < r.length; i += 4) {
+        const v = q => AL.indexOf(r[q]) * 64 + AL.indexOf(r[q + 1]);
+        const x = (v(i) - MUY.x0) * MUY.k, y = (v(i + 2) - 200) * MUY.k;
+        pts.push([x, y]); if (i) p.lineTo(x, y); else p.moveTo(x, y);
+      }
+      p.closePath();
+    }
+    return { p, pts };
+  });
+  let x0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const f of paths) for (const [x, y] of f.pts) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+  const s = Math.min((GW - 1) / (x1 - x0), (GH - 1) / y1);
+  const c = document.createElement('canvas'); c.width = GW; c.height = GH;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  const grid = path => {
+    g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, GW, GH);
+    g.setTransform(s, 0, 0, -s, (GW - (x1 - x0) * s) / 2 - x0 * s, GH - 0.5);
+    g.fillStyle = '#fff'; g.fill(path, 'evenodd');
+    const d = g.getImageData(0, 0, GW, GH).data, out = new Uint8Array(GW * GH);
+    for (let i = 0; i < out.length; i++) out[i] = d[i * 4 + 3] > 100 ? 1 : 0;
+    return out;
+  };
+  const order = MUY.ph.map((p, i) => [p, i]).sort((a, b) => a[0] - b[0]).map(x => x[1]);
+  return { gallop: order.map(i => grid(paths[i].p)), stand: standing(grid(paths[10].p)) };
+})();
+// A standing horse: the body of a gathered gallop frame, with four straight legs put back under it.
+function standing(src) {
+  const rows = []; for (let y = 0; y < GH; y++) { let n = 0; for (let x = 0; x < GW; x++) n += src[y * GW + x]; rows.push(n); }
+  const widest = rows.indexOf(Math.max(...rows));
+  let belly = widest; while (belly + 1 < GH && rows[belly + 1] >= rows[widest] * 0.5) belly++;
+  const out = new Uint8Array(GW * GH);
+  for (let y = 0; y <= belly; y++) for (let x = 0; x < GW; x++) out[y * GW + x] = src[y * GW + x];
+  let l = GW, r = 0; for (let x = 0; x < GW; x++) if (src[belly * GW + x]) { l = Math.min(l, x); r = Math.max(r, x); }
+  for (const x of [l + 1, l + 3, r - 3, r - 1]) for (let y = belly + 1; y < GH; y++) out[y * GW + x] = 1;
+  return out;
+}
+// One horse on one canvas. cssW is the canvas width in CSS pixels; cells come out whole device pixels.
+function makeHorse(canvas, cssW, color) {
+  const h = { canvas, ctx: canvas.getContext('2d'), cssW, color, phase: Math.random(), scroll: 0, mix: 0, state: 'rest' };
+  sizeHorse(h); return h;
+}
+function sizeHorse(h) {
+  const d = Math.max(1, Math.round(window.devicePixelRatio || 1));
+  const w = h.cssW || h.canvas.getBoundingClientRect().width || 80;
+  h.cell = Math.max(1, Math.floor(w * d / GW));
+  h.canvas.width = h.cell * GW; h.canvas.height = h.cell * (GH + 1);
+}
+function stepHorse(h, dt) {
+  const target = typeof h.speed === 'number' ? h.speed : h.state === 'sprint' ? 1 : h.state === 'work' ? 0.5 : 0;
+  h.mix += (target - h.mix) * Math.min(1, dt * 3);
+  const strides = h.mix > 0.02 ? 0.5 + 1.9 * h.mix : 0;          // ~1.5 strides/s working, ~2.4 sprinting
+  if (!reduceMotion) { h.phase = (h.phase + dt * strides) % 1; h.scroll += dt * (6 + 26 * h.mix) * (h.mix > 0.02 ? 1 : 0); }
+  const moving = h.mix > 0.08;
+  const cells = moving ? FRAMES.gallop[Math.floor(h.phase * FRAMES.gallop.length) % FRAMES.gallop.length] : FRAMES.stand;
+  const x = h.ctx, c = h.cell, gap = c >= 3 ? Math.max(1, Math.round(c / 6)) : 0;
+  x.clearRect(0, 0, h.canvas.width, h.canvas.height);
+  x.fillStyle = h.color;
+  x.globalAlpha = h.state === 'rest' ? (h.restAlpha || 0.6) : BG === 'oil' ? 0.8 + 0.2 * h.mix : 1;   // solid on the calm backgrounds
+  for (let y = 0; y < GH; y++) for (let xx = 0; xx < GW; xx++) if (cells[y * GW + xx]) x.fillRect(xx * c, y * c, c - gap, c - gap);
+  x.globalAlpha = 0.4; x.fillStyle = THEME.ink;                        // the track runs under the horse while it moves
+  const off = Math.floor(h.scroll) % 4;
+  for (let xx = -off; xx < GW; xx += 4) if (xx >= 0) x.fillRect(xx * c, GH * c, c - gap, c - gap);
+  x.globalAlpha = 1;
+}
+
+/* ---------- helpers ---------- */
+const hash = s => { let h = 2166136261; for (const ch of s) h = Math.imul(h ^ ch.charCodeAt(0), 16777619); return h >>> 0; };
+const laneColor = id => THEME.pal[hash(id) % THEME.pal.length];
+const ago = ms => {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 5) return 'just now'; if (s < 60) return s + 's ago';
+  if (s < 3600) return Math.round(s / 60) + 'm ago'; return Math.round(s / 3600) + 'h ago';
+};
+const dur = ms => {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return s + 's'; if (s < 3600) return Math.floor(s / 60) + 'm';
+  return Math.floor(s / 3600) + 'h ' + Math.floor(s % 3600 / 60) + 'm';
+};
+const isWait = a => a.state === 'rest' && /waiting on you/i.test(a.note || '');
+const hooked = id => /^(claude|cursor):/.test(id);     // these send tool calls; the rest only send a state
+function stateWord(a) {
+  if (a.state === 'sprint') return 'Sprinting';
+  if (a.state === 'work') return 'Working';
+  if (!a.note) return 'Done';
+  return a.note.charAt(0).toUpperCase() + a.note.slice(1);
+}
+function sourceOf(id) {
+  if (DEMO) return 'Test horse';
+  if (id.startsWith('claude:')) return 'Claude Code';
+  if (id.startsWith('cursor:')) return 'Cursor';
+  if (id === 'xcode') return 'Xcode';
+  if (id === 'testflight') return 'TestFlight';
+  if (id.startsWith('watch:')) return 'App on your Mac';
+  return 'Custom';
+}
+// how lit the row's underline is: tool calls against a full sprint (12 a minute), or the state for the rest
+const activity = a => typeof a.speed === 'number' ? Math.max(0.04, a.speed) : a.state === 'rest' ? 0 : hooked(a.id) && typeof a.rate === 'number'
+  ? Math.max(0.08, Math.min(1, a.rate / 12)) : a.state === 'sprint' ? 1 : 0.5;
+
+/* ---------- board ---------- */
+const rows = new Map();
+const firstSeen = new Map();
+let clockSkew = 0, lastOk = 0, haveData = false, RENAME = {}, lastCount = -1, latest = [];
+const display = a => RENAME[a.name] || a.name;
+function makeRow(a) {
+  const el = document.createElement('li');
+  el.className = 'row enter';
+  el.innerHTML = '<canvas></canvas><div class="who"><div class="name"></div><div class="task"></div></div>' +
+    '<div class="what"><div class="state"></div><div class="meta"></div></div>';
+  el.style.setProperty('--lane', laneColor(a.id));
+  el.addEventListener('click', () => openSheet(a.id));
+  el.addEventListener('animationend', () => el.classList.remove('enter'), { once: true });
+  return { el, horse: makeHorse(el.querySelector('canvas'), 80, laneColor(a.id)) };
+}
+function order(list) {   // sprinting, working, waiting on you, then the rest: same as the big screen, with waits pulled up
+  const rank = a => a.state === 'sprint' ? 0 : a.state === 'work' ? 1 : isWait(a) ? 2 : 3;
+  return list.map((a, i) => [a, i]).sort((x, y) => rank(x[0]) - rank(y[0]) || x[1] - y[1]).map(x => x[0]);
+}
+function render(data) {
+  const now = Date.now() + clockSkew;
+  const list = order(data.agents || []);
+  latest = list;
+  const n = { sprint: 0, work: 0, wait: 0 };
+  for (const a of list) { if (a.state === 'sprint') n.sprint++; else if (a.state === 'work') n.work++; else if (isWait(a)) n.wait++; }
+  const running = n.sprint + n.work;
+  if (running !== lastCount) {
+    const b = $('count'); b.textContent = running;
+    if (lastCount >= 0 && !reduceMotion) { b.classList.remove('bump'); void b.offsetWidth; b.classList.add('bump'); }
+    lastCount = running;
+  }
+  $('nSprint').textContent = n.sprint; $('nWork').textContent = n.work; $('nWait').textContent = n.wait;
+  $('wWait').hidden = !n.wait;
+  document.body.classList.toggle('is-empty', list.length === 0);
+
+  // reorder with a FLIP so rows glide to their new place instead of jumping
+  const ul = $('list'), before = new Map();
+  for (const [id, r] of rows) before.set(id, r.el.getBoundingClientRect().top);
+  const seen = new Set();
+  list.forEach((a, i) => {
+    seen.add(a.id);
+    if (!firstSeen.has(a.id)) firstSeen.set(a.id, now);
+    let r = rows.get(a.id);
+    if (!r) { r = makeRow(a); rows.set(a.id, r); }
+    r.data = a; r.horse.state = a.state; r.horse.speed = typeof a.speed === 'number' ? a.speed : undefined;
+    r.el.classList.toggle('rest', a.state === 'rest');
+    r.el.classList.toggle('wait', isWait(a));
+    r.el.style.setProperty('--act', activity(a));
+    r.el.querySelector('.name').textContent = display(a);
+    r.el.querySelector('.task').textContent = a.task || sourceOf(a.id);
+    r.el.querySelector('.state').textContent = stateWord(a);
+    const bits = [];
+    if (hooked(a.id) && typeof a.rate === 'number' && a.state !== 'rest') bits.push(a.rate + ' calls/min');
+    if (a.state === 'rest') bits.push('for ' + dur(now - a.since));
+    else bits.push(typeof a.last === 'number' ? ago(now - a.last) : 'for ' + dur(now - a.since));
+    r.el.querySelector('.meta').textContent = bits.join(' · ');
+    if (ul.children[i] !== r.el) ul.insertBefore(r.el, ul.children[i] || null);
+  });
+  for (const [id, r] of rows) if (!seen.has(id)) { r.el.remove(); rows.delete(id); }
+  if (!reduceMotion) for (const [id, r] of rows) {
+    if (!before.has(id)) continue;
+    const dy = before.get(id) - r.el.getBoundingClientRect().top;
+    if (Math.abs(dy) < 1) continue;
+    r.el.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], { duration: 450, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' });
+  }
+  if (sheetId) fillSheet();
+}
+
+/* ---------- detail sheet ---------- */
+let sheetId = null, sheetHorse = null, hist = null, histTimer = 0, lastSheetData = null;
+function openSheet(id) {
+  sheetId = id; hist = null; lastSheetData = null;
+  const color = laneColor(id);
+  sheetHorse = makeHorse($('sHorse'), 0, color); sheetHorse.restAlpha = 0.8;
+  document.body.classList.add('sheet-open');
+  requestAnimationFrame(() => sizeHorse(sheetHorse));
+  fillSheet(); loadHistory();
+  clearInterval(histTimer); histTimer = setInterval(loadHistory, 5000);
+}
+function closeSheet() {
+  document.body.classList.remove('sheet-open');
+  clearInterval(histTimer); sheetId = null; sheetHorse = null;
+  $('sheet').style.transform = '';
+}
+function fillSheet() {
+  const now = Date.now() + clockSkew;
+  const live = latest.find(a => a.id === sheetId);
+  if (live) lastSheetData = live;
+  const a = lastSheetData; if (!a) return;
+  $('sheet').classList.toggle('is-gone', !live);
+  sheetHorse.state = live ? a.state : 'rest'; sheetHorse.speed = live && typeof a.speed === 'number' ? a.speed : undefined;
+  const idx = latest.findIndex(x => x.id === sheetId);
+  $('sLane').textContent = (DEMO ? 'Demo · ' : '') + (idx >= 0 ? 'Lane ' + String(idx + 1).padStart(2, '0') : 'Off the track');
+  $('sName').textContent = display(a);
+  $('sTask').textContent = a.task || '—';
+  const st = $('sState'); st.textContent = stateWord(a); st.classList.toggle('amber', isWait(a));
+  $('sFor').textContent = dur(now - a.since);
+  $('sLast').textContent = typeof a.last === 'number' ? ago(now - a.last) : '—';
+  if (hooked(a.id)) { $('sRateLabel').textContent = 'Calls / min'; $('sRate').textContent = typeof a.rate === 'number' ? a.rate : '—'; }
+  else { $('sRateLabel').textContent = 'Calls / min'; $('sRate').textContent = 'Not sent'; }
+  $('sSource').textContent = sourceOf(a.id);
+  $('cTitle').textContent = hooked(a.id) ? 'Tool calls' : 'State';
+  drawChart();
+}
+async function loadHistory() {
+  if (!sheetId) return;
+  if (DEMO) { hist = demoHistory(sheetId); drawChart(); return; }
+  try {
+    const r = await fetch('/phone-history?id=' + encodeURIComponent(sheetId), { cache: 'no-store' });
+    hist = r.ok ? await r.json() : null;
+  } catch { /* keep what we had */ }
+  drawChart();
+}
+// 45 columns, one per 20 seconds. Tool-call agents: height = calls in that slot. Others: height = state.
+function drawChart() {
+  const cv = $('sChart'), d = Math.max(1, Math.round(window.devicePixelRatio || 1));
+  const w = cv.getBoundingClientRect().width; if (!w || !sheetId) return;
+  const col = Math.floor(w * d / HIST_N), cell = col, rowsN = Math.max(6, Math.floor(64 * d / cell));
+  cv.width = col * HIST_N; cv.height = cell * rowsN;
+  const x = cv.getContext('2d'); x.clearRect(0, 0, cv.width, cv.height);
+  const gap = Math.max(1, Math.round(cell / 6));
+  const samples = Array.isArray(hist) ? hist : [];
+  const now = Date.now() + clockSkew, slots = new Array(HIST_N).fill(null);
+  for (const [t, n, s] of samples) {
+    const k = HIST_N - 1 - Math.floor((now - t) / HIST_STEP);
+    if (k >= 0 && k < HIST_N) slots[k] = [n, s];
+  }
+  const isHooked = hooked(sheetId);
+  const max = Math.max(4, ...slots.filter(Boolean).map(v => v[0]));
+  const color = laneColor(sheetId);
+  for (let k = 0; k < HIST_N; k++) {
+    const v = slots[k], px = k * col;
+    if (!v) { x.globalAlpha = 0.14; x.fillStyle = THEME.ink; x.fillRect(px, cv.height - cell, cell - gap, cell - gap); continue; }
+    const [n, s] = v;
+    const level = isHooked ? Math.ceil(n / max * rowsN) : s === 'sprint' ? rowsN : s === 'work' ? Math.ceil(rowsN / 2) : 0;
+    const hgt = Math.max(1, level);
+    x.globalAlpha = level === 0 ? 0.3 : s === 'rest' ? 0.45 : 0.95; x.fillStyle = level === 0 ? THEME.ink : color;
+    for (let y = 0; y < hgt; y++) x.fillRect(px, cv.height - (y + 1) * cell, cell - gap, cell - gap);
+  }
+  x.globalAlpha = 1;
+  const have = slots.filter(Boolean).length;
+  if (isHooked) { $('sSumLabel').textContent = 'Calls, 15 min'; $('sSum').textContent = have ? slots.filter(Boolean).reduce((t, v) => t + v[0], 0) : '—'; }
+  else { $('sSumLabel').textContent = 'Active, 15 min'; $('sSum').textContent = have ? dur(slots.filter(v => v && v[1] !== 'rest').length * HIST_STEP) : '—'; }
+  $('cMax').textContent = isHooked && have ? 'peak ' + Math.max(0, ...slots.filter(Boolean).map(v => v[0])) + ' per 20 s' : '';
+  $('cNote').textContent = !have ? 'No history yet. It fills in every 20 seconds while Agent Derby runs.'
+    : have < HIST_N ? 'Faint marks: Agent Derby wasn’t watching this agent yet.' : '';
+}
+// swipe the sheet down to close
+(() => {
+  const sh = $('sheet'); let y0 = null, dy = 0;
+  sh.addEventListener('touchstart', e => { if (sh.scrollTop > 0) return; y0 = e.touches[0].clientY; dy = 0; sh.classList.add('drag'); }, { passive: true });
+  sh.addEventListener('touchmove', e => { if (y0 === null) return; dy = Math.max(0, e.touches[0].clientY - y0); sh.style.transform = `translateY(${dy}px)`; }, { passive: true });
+  sh.addEventListener('touchend', () => { if (y0 === null) return; sh.classList.remove('drag'); y0 = null; if (dy > 90) closeSheet(); else sh.style.transform = ''; });
+})();
+$('scrim').addEventListener('click', closeSheet);
+$('close').addEventListener('click', closeSheet);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); });
+
+/* ---------- background: digital oil ----------
+   A few soft color blobs drift and blend, warped like oil on water, then drawn into a coarse pixel grid
+   (one canvas pixel per 7 CSS px) with ordered dithering, so it moves like paint but looks like the horses. */
+const oil = (() => {
+  const cv = $('oil'), g = cv.getContext('2d');
+  const CELL = 7;
+  const INKS = [[255, 132, 54], [236, 66, 132], [118, 84, 255], [34, 156, 222], [255, 190, 70], [40, 196, 150]];
+  const B = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];       // 4x4 Bayer matrix
+  const blobs = INKS.map((c, i) => ({ c, a: 0.05 + 0.017 * i, b: 0.043 + 0.013 * ((i * 3) % 5), p: i * 1.7, q: i * 2.3 }));
+  let W = 0, H = 0, img = null, last = 0, mode = BG, dirty = true;
+  const cellNoise = (x, y) => { let h = (x * 374761393 + y * 668265263) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) & 255) / 255; };
+  // still backgrounds: drawn once; the texture is kept faint so the horses carry the color
+  function drawStill() {
+    const d = img.data;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const k = (y * W + x) * 4, n = cellNoise(x, y) - 0.5, th = B[(y & 3) * 4 + (x & 3)] / 16 - 0.5;
+      let c;
+      if (mode === 'paper') { const v = 6 * n + 3 * th; c = [238 + v, 234 + v, 224 + v]; }
+      else { const stripe = Math.floor(y / 12) % 2, v = 7 * n + 4 * th;      // mowed turf: two greens in bands
+        c = stripe ? [41 + v * 0.6, 107 + v, 52 + v * 0.6] : [35 + v * 0.6, 94 + v, 46 + v * 0.6]; }
+      d[k] = c[0]; d[k + 1] = c[1]; d[k + 2] = c[2]; d[k + 3] = 255;
+    }
+    g.putImageData(img, 0, 0);
+  }
+  function size() {
+    W = Math.ceil(innerWidth / CELL); H = Math.ceil(Math.max(innerHeight, screen.height || 0) / CELL);
+    cv.width = W; cv.height = H; cv.style.width = W * CELL + 'px'; cv.style.height = H * CELL + 'px';
+    img = g.createImageData(W, H);
+  }
+  function draw(t) {
+    const d = img.data, asp = H / W;
+    const P = blobs.map(o => [0.5 + 0.55 * Math.sin(t * o.a + o.p), asp * (0.5 + 0.55 * Math.cos(t * o.b + o.q))]);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const u0 = x / W, v0 = y / W;
+      const u = u0 + 0.07 * Math.sin(v0 * 6.0 + t * 0.21) + 0.03 * Math.sin(v0 * 13 - t * 0.13);
+      const v = v0 + 0.07 * Math.cos(u0 * 5.0 - t * 0.17);
+      let r = 0, gg = 0, b = 0, sw = 0;
+      for (let i = 0; i < P.length; i++) {
+        const dx = u - P[i][0], dy = v - P[i][1], w = Math.exp(-(dx * dx + dy * dy) * 7);
+        r += blobs[i].c[0] * w; gg += blobs[i].c[1] * w; b += blobs[i].c[2] * w; sw += w;
+      }
+      const glow = Math.min(1, 0.35 + sw * 0.9);                          // where no blob reaches, it settles to deep color
+      const th = (B[(y & 3) * 4 + (x & 3)] / 16 - 0.5) * 22, k = (y * W + x) * 4, L = 28;
+      d[k]     = Math.max(0, Math.min(255, Math.round((r / sw * glow * 0.82 + th) / L) * L));
+      d[k + 1] = Math.max(0, Math.min(255, Math.round((gg / sw * glow * 0.82 + th) / L) * L));
+      d[k + 2] = Math.max(0, Math.min(255, Math.round((b / sw * glow * 0.82 + th) / L) * L));
+      d[k + 3] = 255;
+    }
+    g.putImageData(img, 0, 0);
+  }
+  size(); addEventListener('resize', () => { size(); dirty = true; if (mode === 'oil') draw(last); });
+  const t0 = performance.now() - 40000 * Math.random();
+  return {
+    set(m) { mode = m; dirty = true; last = 0; },
+    step(now) {
+      if (mode !== 'oil') { if (dirty) { dirty = false; drawStill(); } return; }
+      if (reduceMotion) { if (!last) { last = 1; draw(37); } return; }
+      if (now - last < 50) return;                                        // ~20 frames a second is plenty for this pace
+      last = now; draw((now - t0) / 1000);
+    },
+  };
+})();
+
+function applyBg(name) {
+  if (!THEMES[name]) return;
+  BG = name; THEME = THEMES[name];
+  document.documentElement.dataset.bg = name;
+  document.querySelector('meta[name="theme-color"]').content = THEME.meta;
+  document.querySelectorAll('.bgpick button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.bg === name)));
+  for (const r of rows.values()) { const c = laneColor(r.data ? r.data.id : ''); r.horse.color = c; r.el.style.setProperty('--lane', c); }
+  if (sheetHorse && sheetId) sheetHorse.color = laneColor(sheetId);
+  if (typeof emptyHorse !== 'undefined') emptyHorse.color = THEME.ink;
+  oil.set(name); store.set('derby-phone-bg', name);
+  if (sheetId) drawChart();
+}
+document.querySelectorAll('.bgpick button').forEach(b => b.addEventListener('click', () => applyBg(b.dataset.bg)));
+
+/* ---------- drawing loop ---------- */
+const emptyHorse = makeHorse($('emptyHorse'), 120, THEME.ink);
+let lastT = performance.now();
+function frame(t) {
+  const dt = Math.min(0.1, (t - lastT) / 1000); lastT = t;
+  oil.step(t);
+  for (const r of rows.values()) stepHorse(r.horse, dt);
+  if (sheetHorse) stepHorse(sheetHorse, dt);
+  if (document.body.classList.contains('is-empty')) stepHorse(emptyHorse, dt);
+  requestAnimationFrame(frame);
+}
+
+/* ---------- live data ---------- */
+const startedAt = Date.now();
+async function poll() {
+  if (document.hidden) return;
+  try {
+    const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), 4000);
+    const res = await fetch('/status', { cache: 'no-store', signal: ctl.signal });
+    clearTimeout(to);
+    if (!res.ok) throw new Error(res.status);
+    const data = await res.json();
+    clockSkew = data.now - Date.now(); lastOk = Date.now(); haveData = true;
+    document.body.classList.add('has-data');
+    render(data);
+  } catch { /* the clock below shows it */ }
+  tick();
+}
+function tick() {
+  const fresh = lastOk && Date.now() - lastOk < OFFLINE_MS;
+  const off = !fresh && Date.now() - startedAt > OFFLINE_MS;
+  document.body.classList.toggle('is-offline', off);
+  const el = $('live');
+  el.className = 'live' + (fresh ? ' on' : off ? ' off' : '');
+  $('liveText').textContent = fresh ? 'Live' : off ? 'Offline' : 'Connecting';
+  $('seen').textContent = lastOk ? 'Last heard from it ' + ago(Date.now() - lastOk) + '. The board below is from then.' : "It hasn't answered yet.";
+  $('ago').textContent = lastOk ? 'updated ' + ago(Date.now() - lastOk) : '';
+}
+$('retry').addEventListener('click', () => { $('liveText').textContent = 'Checking'; poll(); });
+
+/* ---------- demo (off unless ?demo=1, and always labelled) ---------- */
+// eight test horses, from standing to full sprint, so the speeds can be compared side by side
+const DEMO_FIELD = [['Full sprint', 1], ['Sprint', 0.84], ['Fast canter', 0.68], ['Canter', 0.52], ['Trot', 0.36],
+  ['Jog', 0.22], ['Walking', 0.1], ['Standing', 0, 'waiting on you']];
+function demoHistory(id) {
+  const i = Number((id.match(/(\d+)$/) || [0, 1])[1]) - 1, sp = (DEMO_FIELD[i] || DEMO_FIELD[0])[1], now = Date.now(), out = [];
+  for (let k = 0; k < (sp === 0 ? 20 : HIST_N); k++) {
+    const wave = Math.sin(k / 4 + i) * 0.5 + 0.5, v = sp * (0.55 + 0.45 * wave);
+    out.unshift([now - k * HIST_STEP, Math.round(v * 9), v >= 0.6 ? 'sprint' : v > 0.08 ? 'work' : 'rest']);
+  }
+  return out;
+}
+function demo() {
+  document.body.classList.add('is-demo');
+  const t0 = Date.now();
+  const step = () => {
+    const now = Date.now();
+    const agents = DEMO_FIELD.map(([task, speed, note], i) => ({
+      id: 'claude:demo' + (i + 1), name: 'Demo ' + (i + 1), task, speed, note: note || '',
+      state: speed >= 0.6 ? 'sprint' : speed > 0.08 ? 'work' : 'rest',
+      since: t0 - (i + 1) * 61000, last: now - (speed ? Math.round((1 - speed) * 20000) : 200000), rate: Math.round(speed * 26),
+    }));
+    lastOk = now; haveData = true; document.body.classList.add('has-data');
+    render({ now, agents });
+    tick();
+  };
+  step(); setInterval(step, POLL_MS);
+}
+
+$('host').textContent = location.hostname && location.hostname !== '127.0.0.1' && location.hostname !== 'localhost' ? location.hostname : 'This Mac';
+fetch('/config', { cache: 'no-store' }).then(r => r.ok ? r.json() : {}).then(c => { RENAME = (c && c.labels && c.labels.rename) || {}; }).catch(() => {});
+window.addEventListener('resize', () => { for (const r of rows.values()) sizeHorse(r.horse); if (sheetHorse) sizeHorse(sheetHorse); drawChart(); });
+if (DEMO) demo();
+else {
+  poll(); setInterval(poll, POLL_MS);
+  setInterval(tick, 1000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
+}
+applyBg(BG);
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

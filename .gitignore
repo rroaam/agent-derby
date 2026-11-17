@@ -4,3 +4,11 @@ derby.config.json
 .DS_Store
 node_modules/
 docs/qa/
+.claude/settings.local.json
+*.before-phone
+.bridge.phone-check.mjs
+.env
+*.p8
+*.p12
+*.pem
+*.mobileprovision

@@ -100,7 +100,7 @@ function snapshot() {
   }
   const rank = { sprint: 0, work: 1, rest: 2 };
   const list = [...agents.values()].sort((x, y) => rank[x.state] - rank[y.state] || y.last - x.last)
-    .map(a => ({ id: a.id, name: a.name, task: a.task, state: a.state, since: a.since, note: a.note }));
+    .map(a => ({ id: a.id, name: a.name, task: a.task, state: a.state, since: a.since, note: a.note, rate: a.hits.length, last: a.last }));
   return { now, agents: list };
 }
 
@@ -209,6 +209,19 @@ const ip = a => String(a || '').replace(/^::ffff:/, '');
 const isLocal = a => /^(127\.|::1$)/.test(ip(a));
 // Home-network addresses only: 10.x, 172.16-31.x, 192.168.x, link-local, and IPv6 local ranges.
 const isHome = a => isLocal(a) || /^(10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|f[cd][0-9a-f]{2}:|fe80:)/i.test(ip(a));
+// agent-derby phone history: every 20 s, note each agent's tool calls in that window and its state; keeps 15 minutes, in memory only
+const PHONE_HIST = new Map();
+setInterval(() => {
+  snapshot();
+  const now = Date.now();
+  for (const a of agents.values()) {
+    let h = PHONE_HIST.get(a.id); if (!h) PHONE_HIST.set(a.id, h = []);
+    h.push([now, a.hits.filter(t => now - t < 20000).length, a.state]);
+    if (h.length > 45) h.shift();
+  }
+  for (const id of PHONE_HIST.keys()) if (!agents.has(id)) PHONE_HIST.delete(id);
+}, 20000).unref();
+// end agent-derby phone history
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://127.0.0.1');
   const from = req.socket.remoteAddress;
@@ -219,6 +232,23 @@ const server = http.createServer((req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(buf);
     });
     return;
+  }
+  // agent-derby phone routes: the portrait page for phones, its home-screen manifest and icons, and recent activity
+  const PHONE = { '/phone': ['phone.html', 'text/html; charset=utf-8'], '/phone.html': ['phone.html', 'text/html; charset=utf-8'],
+    '/phone.webmanifest': ['phone.webmanifest', 'application/manifest+json'],
+    '/phone-icon-180.png': ['phone-icon-180.png', 'image/png'], '/phone-icon-512.png': ['phone-icon-512.png', 'image/png'] };
+  if (req.method === 'GET' && PHONE[url.pathname]) {
+    const [file, type] = PHONE[url.pathname];
+    fs.readFile(path.join(DIR, file), (err, buf) => {
+      if (err) { res.writeHead(404); return res.end(file + ' is missing next to bridge.mjs'); }
+      res.writeHead(200, { 'Content-Type': type, 'Cache-Control': type.startsWith('image') ? 'max-age=86400' : 'no-store' }); res.end(buf);
+    });
+    return;
+  }
+  if (req.method === 'GET' && url.pathname === '/phone-history') {
+    const id = url.searchParams.get('id');
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    return res.end(JSON.stringify(id ? (PHONE_HIST.get(id) || []) : Object.fromEntries(PHONE_HIST)));
   }
   if (req.method === 'GET' && url.pathname === '/config') {
     // only the page's look (the "page" section), never keys or paths
