@@ -109,9 +109,12 @@ trap 'exit 0' TERM INT HUP
 OPEN_RACE=0
 [ "$FIRST_RUN" = 0 ] && [ "$LOGIN_LAUNCH" = 0 ] && OPEN_RACE=1
 
+# Run the menu natively on Apple silicon. Under Rosetta, JavaScript for Automation hangs creating the menu handler.
+OSA=/usr/bin/osascript
+[ "$(/usr/sbin/sysctl -n hw.optional.arm64 2>/dev/null)" = 1 ] && OSA="/usr/bin/arch -arm64e /usr/bin/osascript"
 DERBY_PORT="$PORT" DERBY_NODE="$NODE" DERBY_RES="$RES" DERBY_APP="$APP_PATH" DERBY_SUPPORT="$SUPPORT" \
 DERBY_FIRST_RUN="$FIRST_RUN" DERBY_SETUP="$SETUP" DERBY_SERVER="$SERVER" DERBY_OPEN_RACE="$OPEN_RACE" \
-  /usr/bin/osascript -l JavaScript "$RES/menu.js" &
+  $OSA -l JavaScript "$RES/menu.js" &
 MENU_PID=$!
 STARTED=$(date +%s)
 trap 'kill "$MENU_PID" 2>/dev/null; exit 0' TERM INT HUP
