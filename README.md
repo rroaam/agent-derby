@@ -6,6 +6,27 @@ A horse race for your AI coding agents. Every agent gets a lane. A horse that's 
 
 *The screenshot shows demo horses. Real agents replace them once the bridge is running.*
 
+<!-- start-here -->
+## New to this? Start here
+
+You don't need to know any code. You need a Mac and about five minutes.
+
+1. **Install Node.** Download the LTS version from [nodejs.org](https://nodejs.org) and run the installer.
+2. **Open Terminal.** Press Command+Space, type Terminal and press Return.
+3. **Paste this and press Return.**
+
+   ```sh
+   cd ~ && if node -e 'process.exit(parseInt(process.versions.node)<18?1:0)' 2>/dev/null; then { [ -d agent-derby ] || { T=$(mktemp -d) && curl -fsSL https://github.com/rroaam/agent-derby/archive/refs/heads/main.tar.gz | tar -xz -C "$T" && mv "$T/agent-derby-main" agent-derby; }; } && cd agent-derby && node setup.mjs && bash autostart.sh on && open http://127.0.0.1:4777/; else echo "Install Node 18 or newer from nodejs.org first, then paste this again."; fi
+   ```
+
+   It downloads Agent Derby into a folder called `agent-derby` in your home folder, connects Claude Code, Cursor and the Claude app, and opens the race in your browser. It starts again on its own every time you log in.
+4. **Restart Claude Code or Cursor.** Every agent you run gets a horse. Until one reports in, the lanes stay empty.
+
+To remove it, paste `bash ~/agent-derby/autostart.sh off && node ~/agent-derby/setup.mjs remove`, then delete the `agent-derby` folder.
+
+A Mac app you can download and double-click is on the way.
+<!-- /start-here -->
+
 ## What's in here
 
 | File | What it does |
