@@ -121,7 +121,7 @@ curl -s -H 'X-Derby: 1' -d '{"agent":"my-bot","name":"My Bot","task":"ops","stat
 
 - **Live wallpaper (macOS):** add http://127.0.0.1:4777/ as a website in [Plash](https://sindresorhus.com/plash).
 - **Screensaver (macOS):** set the URL in [WebViewScreenSaver](https://github.com/liquidx/webviewscreensaver).
-- **Any browser:** open the page and press F for fullscreen. H shows the controls.
+- **Any browser:** open the page and press F for fullscreen. B switches between grass and black. H shows the controls.
 
 ### Old screens: tube TVs, old iMacs, 4:3 monitors
 
@@ -154,8 +154,9 @@ Everything lives in `derby.config.json`. Every key is optional.
 | `page.palette` | `"lanes"` | `lanes` (a color per lane), `amber`, `green`, `white`, `ice`, or one 6-digit hex color. |
 | `page.crtOverlay` | `0.15` | CRT layer strength, 0 (off) to 1. Defaults to 0.25 on the 4:3 layout. |
 | `page.title` | `"AGENT DERBY"` | Text in the footer. |
-| `page.theme.background` | `"#000000"` | Background color (6-digit hex). |
-| `page.theme.ink` | `"#ECE9E2"` | Text and track color (6-digit hex). |
+| `page.theme.ground` | `"grass"` | `grass` (mowed turf, cream type) or `black` (the night track). The B key switches it on that screen, and `?bg=black` in the address wins over both. |
+| `page.theme.background` | `"#000000"` | Background color on the `black` ground (6-digit hex). |
+| `page.theme.ink` | `"#ECE9E2"` | Text and track color on the `black` ground (6-digit hex). |
 | `page.horses` | all 8 | Textures for the `classic` look, lane by lane, repeating if shorter: `chrome`, `thermal`, `type`, `dots`, `glass`, `leopard`, `cobalt`, `glitter`. |
 | `page.track.lines` | `true` | Draw the track lines and distance posts. |
 | `page.track.reflections` | `true` | Draw the horses' reflections. |
@@ -185,7 +186,7 @@ If the page runs slowly (a Raspberry Pi, a very large screen), it drops the bloo
 
 ## Address options
 
-`?layout=4x3|wide|auto`, `?style=dots|dither|ascii|pixels|classic`, `?palette=amber`, `?crt=0.3`, `?lanes=1-8` (minimum lanes), `?demo=0` (freeze the demo), `?live=1` (poll a bridge when served over https).
+`?layout=4x3|wide|auto`, `?bg=grass|black`, `?style=dots|dither|ascii|pixels|classic`, `?palette=amber`, `?crt=0.3`, `?lanes=1-8` (minimum lanes), `?demo=0` (freeze the demo), `?live=1` (poll a bridge when served over https).
 
 ## Privacy
 

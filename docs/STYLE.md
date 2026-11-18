@@ -18,7 +18,8 @@ The horse is built from light. A precise grid of light points sampled from a mov
 - Every point sits on the grid. Motion moves the silhouette under the grid; the grid itself never moves.
 
 ## Color
-- Black ground (`#000`). Type in warm off-white at modest opacity.
+- Two grounds. **Grass** (the default): mowed turf in two greens, one band per lane, with a faint grain set on the same cell lattice as the horses so it never shimmers. Type in cream, a step heavier than on black so it reads on green. No reflections on turf. **Black** (`#000`, the night track): type in warm off-white at modest opacity, a black-glass floor that mirrors the hooves.
+- On grass the lane hues that would sink into the green (green, deep violet) become cream and lilac, a done horse rests by thinning out rather than going dark, and the CRT lattice and vignette are lighter so they don't read as a mesh over the turf.
 - One hue per lane, spaced to tell apart at a glance: amber `#FFB547`, ice `#CFE8FF`, green `#6BFF8E`, coral `#FF6B5A`, cyan `#5FE3FF`, gold `#FFD36B`, violet `#B48CFF`, pink `#FF8FD0`. A single phosphor palette (amber, green, white, ice) or one hex is an option.
 - Tones within a horse are steps of the same hue, never a second hue.
 
