@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Agent Derby</title></head><body>
+<html lang="en" data-bg="grass"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Agent Derby</title></head><body>
 <title>Agent Derby</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -18,6 +18,8 @@
   --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   color-scheme: dark;
 }
+/* derby grass (as phone.html): mowed turf stripes, drawn on the canvas; cream ink */
+:root[data-bg="grass"] { --bg: #25602F; --ink: #FBF8F0; --ink-dim: rgba(251, 248, 240, 0.66); --rule: rgba(251, 248, 240, 0.22); --panel: rgba(37, 96, 47, 0.97); }
 html, body { height: 100%; margin: 0; background: var(--bg); color: var(--ink); overflow: hidden; }
 body.idle, body.idle canvas { cursor: none; }
 #stage { position: fixed; inset: 0; width: 100%; height: 100%; display: block; background: var(--bg); }
@@ -38,6 +40,11 @@ body.idle, body.idle canvas { cursor: none; }
 #help dt { color: var(--ink); white-space: nowrap; }
 #help dd { margin: 0; min-width: 0; }
 #help p { margin: 10px 0 0; }
+.bgpick { margin-top: 14px; display: flex; align-items: center; gap: 6px; }
+.bgpick > span { margin-right: 6px; }
+.bgpick button { padding: 6px 10px; font: 500 11px/1.4 var(--font-mono); letter-spacing: 0.02em; color: var(--ink); background: none;
+  border: 1px solid var(--rule); cursor: pointer; }
+.bgpick button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 </style>
 
 <canvas id="stage" aria-label="Agent Derby: one horse per agent. Resting horses stand, working horses trot, busy horses gallop."></canvas>
@@ -51,10 +58,12 @@ body.idle, body.idle canvas { cursor: none; }
     <dt>Shift + R · W · S</dt><dd>Set every horse</dd>
     <dt>D</dt><dd>Pause or resume the test simulation</dd>
     <dt>V</dt><dd>Next look: pixels, dots</dd>
+    <dt>B</dt><dd>Background: grass, dark</dd>
     <dt>F</dt><dd>Fullscreen</dd>
     <dt>C</dt><dd>Show your Claude Code sessions (on claude.ai)</dd>
     <dt>H</dt><dd>Hide this panel</dd>
   </dl>
+  <div class="bgpick" role="group" aria-label="Background"><span>Background</span><button data-bg="grass">Grass</button><button data-bg="dark">Dark</button></div>
   <p>Link endings #sprint, #work, #rest and #mixed lock every lane for review. Run locally, ?state=sprint,work,rest,… sets lanes one by one.</p>
 </div>
 
@@ -96,7 +105,14 @@ const LOOKS = ['pixels', 'dots'];                                   // the looks
 const CFG = { style: 'pixels', palette: 'lanes', crt: null, title: 'AGENT DERBY', background: '#000000', ink: '#ECE9E2', horses: null,
   track: { lines: true, reflections: true, dust: true }, labels: { showTask: true, showTimer: true, rename: {} } };
 let INK = '236,233,226';
-const ink = a => `rgba(${INK},${a})`;
+/* Background: derby grass (the default, as on phone.html) or the dark ground (page.theme.background).
+   The choice is shared with phone.html through the same ?bg= and localStorage key; the phone calls its dark ground "oil". */
+const BG_KEY = 'derby-phone-bg', BG_STORED = { grass: 'grass', dark: 'oil' }, BG_READ = { grass: 'grass', dark: 'dark', oil: 'dark' };
+const GRASS = { ground: '#25602F', ink: '251,248,240', pal: ['#FFB547', '#CFE8FF', '#FFF1CC', '#FF6B5A', '#5FE3FF', '#FFD36B', '#D7C4FF', '#FF9FD6'] };
+const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch { /* private mode */ } } };
+let BG = BG_READ[(params.get('bg') || '').toLowerCase()] || BG_READ[store.get(BG_KEY)] || 'grass';
+// the turf is lighter than black, so the quiet label tones are lifted along a curve that keeps their order
+const ink = a => BG === 'grass' ? `rgba(${GRASS.ink},${(1 - Math.pow(1 - a, 2.2)).toFixed(3)})` : `rgba(${INK},${a})`;
 const hexRGB = h => { const m = /^#?([0-9a-f]{6})$/i.exec(String(h || '')); if (!m) return null; const n = parseInt(m[1], 16); return `${n >> 16},${n >> 8 & 255},${n & 255}`; };
 if (STYLES.includes((params.get('style') || '').toLowerCase())) CFG.style = params.get('style').toLowerCase();
 if (params.get('palette')) CFG.palette = params.get('palette');
@@ -117,9 +133,19 @@ function applyConfig(c) {
   if (lb.rename && typeof lb.rename === 'object') CFG.labels.rename = lb.rename;
   if (!params.get('layout') && typeof c.layout === 'string') LAYOUT = ({ '32x9': 'wide', wide: 'wide', '4x3': '4x3', auto: 'auto' })[c.layout.toLowerCase()] || 'auto';
   if (CFG.horses && CFG.horses.length) horses.forEach((h, i) => { h.skin = CFG.horses[i % CFG.horses.length]; });
-  try { document.body.style.background = CFG.background; document.getElementById('stage').style.background = CFG.background; } catch { /* fine */ }
+  applyBg(BG, false);
   resize();
 }
+function applyBg(name, save) {
+  if (!BG_STORED[name]) return;
+  BG = name;
+  const ground = name === 'grass' ? GRASS.ground : CFG.background;
+  document.documentElement.dataset.bg = name;
+  document.body.style.background = ground; cv.style.background = ground;
+  document.querySelectorAll('.bgpick button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.bg === name)));
+  if (save) store.set(BG_KEY, BG_STORED[name]);
+}
+document.querySelectorAll('.bgpick button').forEach(b => b.addEventListener('click', () => applyBg(b.dataset.bg, true)));
 const MIN_LANES = clamp(parseInt(params.get('lanes') || (isTV() ? '4' : '6'), 10) || 6, 1, 8);
 const TEST_LANES = clamp(parseInt(params.get('agents') || String(MIN_LANES), 10) || MIN_LANES, 1, 8);
 let N = TEST_LANES;
@@ -787,7 +813,8 @@ function laneColor(h) {
   const p = String(CFG.palette || 'lanes').toLowerCase();
   if (PHOSPHOR[p]) return PHOSPHOR[p];
   if (hexRGB(p)) return '#' + p.replace('#', '');
-  return LED[h.i % LED.length];
+  const pal = BG === 'grass' ? GRASS.pal : LED;
+  return pal[h.i % pal.length];
 }
 const RAMP = ' .:-=+*#%@';
 const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map(v => (v + 0.5) / 16);
@@ -846,8 +873,10 @@ function tones(col, energy, dots) {
   const [r, g, b] = hexRGB(col).split(',').map(Number);
   // shadow, body, light, highlight: the body tone is the lane colour, the lights are the same hue lifted toward white.
   // LEDs fill less of each cell than pixels do, so their shadow step is shallower.
-  const q = (v, k, w) => Math.round(Math.min(255, (v * k + 255 * w) * energy));
-  return [[dots ? 0.56 : 0.46, 0], [0.86, 0], [0.92, 0.20], [0.52, 0.52]].map(([k, w]) => `rgb(${q(r, k, w)},${q(g, k, w)},${q(b, k, w)})`);
+  // On grass a quiet pixel horse fades into the turf instead of going dark (LEDs fade through their panel instead).
+  const turf = BG === 'grass' && !dots ? hexRGB(GRASS.ground).split(',').map(Number) : null, m = 0.5 + 0.5 * energy;
+  const q = (v, k, w, t) => Math.round(turf ? turf[t] + (Math.min(255, v * k + 255 * w) - turf[t]) * m : Math.min(255, (v * k + 255 * w) * energy));
+  return [[dots ? 0.56 : 0.46, 0], [0.86, 0], [0.92, 0.20], [0.52, 0.52]].map(([k, w]) => `rgb(${q(r, k, w, 0)},${q(g, k, w, 1)},${q(b, k, w, 2)})`);
 }
 // One LED: a round point with a small hot core and a tight halo that is gone before the edge of its cell, so the gap
 // between two dots is black. `heat` is how hard it is driven: 0 has no core (done), 1 burns near white (full sprint).
@@ -947,6 +976,14 @@ function drawCells(h, g, pose, now, originX, groundY, base) {
   const pal = tones(laneColor(h), Math.round(energy * 40) / 40, style === 'dots');
   const heat = (0.25 * w.work + w.sprint) / sum;   // how hard the LEDs are driven: no core when done, a near-white core at full sprint
   const refl = CFG.track.reflections && QUALITY < 2, RA = [0.28, 0.14];
+  // on grass an LED sits on an opaque panel of its lane hue, darker than the dots so the gaps still read; it is
+  // blended toward the turf colour (never laid over it, which would turn warm lanes brown) as the horse quiets down
+  let panel = null;
+  if (BG === 'grass' && style === 'dots') {
+    const f = 0.55 + 0.45 * Math.sqrt(clamp((energy - 0.52) / 0.48, 0, 1)), lc = hexRGB(laneColor(h)).split(',').map(Number);
+    const tc = hexRGB(GRASS.ground).split(',').map(Number);
+    panel = `rgb(${lc.map((v, i) => Math.round(lerp(tc[i], v * 0.62, f))).join(',')})`;
+  }
   ctx.globalCompositeOperation = 'source-over';
   // 6. at full sprint a short trail peels off the tail and croup: it starts at the trailing edge of each row, steps back
   //    one cell at a time, thins and dims with distance, and is gone within 14 cells (about half a second)
@@ -964,7 +1001,8 @@ function drawCells(h, g, pose, now, originX, groundY, base) {
         const hh = (Math.imul(X + shift, 73856093) ^ Math.imul(Y, 19349663)) >>> 0, f = 1 - k / (LEN + 1);
         if ((hh % 1009) / 1009 > f * f * 0.5 * ws) continue;
         const tone = k < 5 ? 2 : k < 10 ? 1 : 0;
-        if (sp) ctx.drawImage(sp[tone], X * c, Y * c); else { ctx.fillStyle = pal[tone]; ctx.fillRect(X * c, Y * c, c, c); }
+        if (panel) { ctx.fillStyle = panel; ctx.fillRect(X * c, Y * c, c, c); }
+        if (sp) ctx.drawImage(sp[panel ? Math.min(3, tone + 1) : tone], X * c, Y * c); else { ctx.fillStyle = pal[tone]; ctx.fillRect(X * c, Y * c, c, c); }
       }
     }
   }
@@ -1002,6 +1040,15 @@ function drawCells(h, g, pose, now, originX, groundY, base) {
       ctx.globalCompositeOperation = 'source-over';
     }
     const sp = pal.map(p => ledSprite(p, c, heat));
+    if (panel) {
+      ctx.globalAlpha = base; ctx.fillStyle = panel; ctx.beginPath();
+      for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+        if (!CT[y * cols + x]) continue;
+        const x0 = x; while (x + 1 < cols && CT[y * cols + x + 1]) x++;
+        ctx.rect(dxA + x0 * c, dyA + y * c, (x - x0 + 1) * c, c);
+      }
+      ctx.fill();
+    }
     ctx.globalAlpha = base;
     for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) { const t = CT[y * cols + x]; if (t) ctx.drawImage(sp[t - 1], dxA + x * c, dyA + y * c); }
     if (refl) for (let r = 0; r < 2; r++) {
@@ -1069,6 +1116,36 @@ function drawStyled(h, dx, dy, info, base) {
   ctx.globalAlpha = base; ctx.drawImage(SOUT, dx, dy);
 }
 
+/* ---------- the ground ----------
+   Grass is phone.html's mowed turf: two greens in bands about twelve cells deep, each cell nudged by a fixed noise and a
+   4x4 Bayer step. It is set on the same lattice as the horses, with a whole number of bands in every lane so each lane
+   is mown the same, drawn once per size and scaled up with no smoothing. */
+const [TURF, tctx] = mk();
+function turfCell() { return isCells(CFG.style) ? cellSize(CFG.style) : Math.max(1, Math.round(7 * dpr)); }
+const turfKey = c => [W, H, c, L.top, L.lh].join('|');
+function buildTurf(c) {
+  const cols = Math.ceil(W / c), rows = Math.ceil(H / c);
+  TURF.width = cols; TURF.height = rows; TURF._key = turfKey(c);
+  const band = L.lh / Math.max(2, Math.round(L.lh / c / 12));
+  const img = tctx.createImageData(cols, rows), d = img.data, B = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+  const cellNoise = (x, y) => { let h = (x * 374761393 + y * 668265263) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) & 255) / 255; };
+  for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+    const k = (y * cols + x) * 4, n = cellNoise(x, y) - 0.5, th = B[(y & 3) * 4 + (x & 3)] / 16 - 0.5;
+    const stripe = ((Math.floor(((y + 0.5) * c - L.top) / band) % 2) + 2) % 2, v = 7 * n + 4 * th;
+    const c3 = stripe ? [41 + v * 0.6, 107 + v, 52 + v * 0.6] : [35 + v * 0.6, 94 + v, 46 + v * 0.6];
+    d[k] = c3[0]; d[k + 1] = c3[1]; d[k + 2] = c3[2]; d[k + 3] = 255;
+  }
+  tctx.putImageData(img, 0, 0);
+}
+function drawGround() {
+  if (BG !== 'grass') { ctx.fillStyle = CFG.background; ctx.fillRect(0, 0, W, H); return; }
+  const c = turfCell();
+  if (TURF._key !== turfKey(c)) buildTurf(c);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(TURF, 0, 0, TURF.width * c, TURF.height * c);
+  ctx.imageSmoothingEnabled = true;
+}
+
 /* ---------- retro CRT layer over everything ---------- */
 function buildCRT() {
   // scanlines lock to the cell lattice: a whole number of lines per cell, the dark part on each cell's bottom edge,
@@ -1096,13 +1173,15 @@ function drawCRT(now) {
   if (k <= 0) return;
   if (SCAN._key !== CFG.style + '|' + QUALITY) buildCRT();
   ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalCompositeOperation = 'source-over';
-  ctx.globalAlpha = Math.min(1, k * 1.2); ctx.fillStyle = ctx.createPattern(SCAN, 'repeat'); ctx.fillRect(0, 0, W, H);
+  // the turf is lit everywhere, so on grass the lattice and the rolling band would show on the whole ground: half strength
+  const soft = BG === 'grass' ? 0.5 : 1;
+  ctx.globalAlpha = Math.min(1, k * 1.2 * soft); ctx.fillStyle = ctx.createPattern(SCAN, 'repeat'); ctx.fillRect(0, 0, W, H);
   ctx.globalAlpha = Math.min(1, k * 2.2); ctx.drawImage(VIG, 0, 0, W, H);
   if (!reduced) {
     // a slow band rolls down the screen. It lifts only what is already lit (colour dodge), so black stays black.
     const bandH = H * 0.22, by = ((now * 0.06) % 1.3 - 0.15) * H;
     const bg = ctx.createLinearGradient(0, by, 0, by + bandH);
-    const bv = Math.round(255 * 0.5 * k);
+    const bv = Math.round(255 * 0.5 * k * soft);
     bg.addColorStop(0, 'rgb(0,0,0)'); bg.addColorStop(0.5, `rgb(${bv},${bv},${bv})`); bg.addColorStop(1, 'rgb(0,0,0)');
     ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'color-dodge'; ctx.fillStyle = bg; ctx.fillRect(0, by, W, bandH);
     ctx.globalCompositeOperation = 'source-over';
@@ -1223,7 +1302,7 @@ function frame() {
   const dt = Math.min(0.25, Math.max(0, now - last)); last = now;   // real elapsed time: a slow frame never slows the horses
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
-  ctx.fillStyle = CFG.background; ctx.fillRect(0, 0, W, H);
+  drawGround();
   const drift = [Math.sin(now / 97) * 3 * dpr, Math.cos(now / 131) * 2 * dpr];
 
   if (L.wide || L.tv) { ctx.fillStyle = ink(0.06); ctx.fillRect(L.trackX0 - L.gut * 0.5, L.top, Math.max(1, dpr), H - L.footH - L.top); }
@@ -1394,6 +1473,7 @@ addEventListener('keydown', e => {
   if (k === 'd') { demo = !demo; if (demo) horses.forEach(h => { h.hold = 0; }); return; }
   if (k === 'f') { toggleFull(); return; }
   if (k === 'v') { CFG.style = LOOKS[(LOOKS.indexOf(CFG.style) + 1) % LOOKS.length]; SPRITES.clear(); return; }
+  if (k === 'b') { applyBg(BG === 'grass' ? 'dark' : 'grass', true); return; }
   if (k === 'c') { cloudAsk(); return; }
   if (k === 'h' || k === '?') { helpEl.hidden = !helpEl.hidden; return; }
   if (k === 'escape') helpEl.hidden = true;
@@ -1589,6 +1669,7 @@ if (params.get('qa')) window.__derby = () => ({ S, cell: CFG.style !== 'classic'
   horses: horses.slice(0, N).map(h => ({ x: h.prevOX, y: h._gy, state: h.state, phase: h.phase, groundOff: h.groundOff, parts: h._parts })) });
 
 addEventListener('resize', resize);
+applyBg(BG, false);
 resize();
 requestAnimationFrame(frame);
 })();
