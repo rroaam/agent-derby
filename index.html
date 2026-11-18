@@ -16,6 +16,7 @@
   --rule: rgba(236, 233, 226, 0.14);
   --panel: #0B0B0C;
   --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font: "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
   color-scheme: dark;
 }
 html, body { height: 100%; margin: 0; background: var(--bg); color: var(--ink); overflow: hidden; }
@@ -29,11 +30,11 @@ body.idle, body.idle canvas { cursor: none; }
   padding: 18px 20px;
   background: var(--panel);
   border: 1px solid var(--rule);
-  font: 12px/1.7 var(--font-mono);
+  font: 13px/1.6 var(--font);
   color: var(--ink-dim);
   letter-spacing: 0.01em;
 }
-#help h2 { margin: 0 0 8px; font: 500 11px/1.4 var(--font-mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink); }
+#help h2 { margin: 0 0 8px; font: 600 11px/1.4 var(--font); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink); }
 #help dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 16px; margin: 0; }
 #help dt { color: var(--ink); white-space: nowrap; }
 #help dd { margin: 0; min-width: 0; }
@@ -51,7 +52,7 @@ body.idle, body.idle canvas { cursor: none; }
     <dt>Shift + R · W · S</dt><dd>Set every horse</dd>
     <dt>D</dt><dd>Pause or resume the test simulation</dd>
     <dt>V</dt><dd>Next look: pixels, dots</dd>
-    <dt>B</dt><dd>Ground: grass or black</dd>
+    <dt>B</dt><dd>Background: grass, off-white, oil, black</dd>
     <dt>F</dt><dd>Fullscreen</dd>
     <dt>C</dt><dd>Show your Claude Code sessions (on claude.ai)</dd>
     <dt>H</dt><dd>Hide this panel</dd>
@@ -79,7 +80,7 @@ const rnd = rng(20261105);
 
 /* ---------- agents (test data) ---------- */
 const STATE_ORDER = ['rest', 'work', 'sprint'];
-const STATE_LABEL = { rest: 'Done', work: 'Working', sprint: 'Full sprint' };
+const STATE_LABEL = { rest: 'Done', work: 'Working', sprint: 'Sprinting' };   // the phone view's words
 const ROSTER = ['chrome', 'thermal', 'type', 'dots', 'glass', 'leopard', 'cobalt', 'glitter']
   .map((skin, i) => ({ name: 'Demo ' + (i + 1), task: 'sample data', skin }));
 const START = ['sprint', 'work', 'rest', 'work', 'sprint', 'rest', 'work', 'rest'];
@@ -98,17 +99,31 @@ const CFG = { style: 'pixels', palette: 'lanes', crt: null, title: 'AGENT DERBY'
   track: { lines: true, reflections: true, dust: true }, labels: { showTask: true, showTimer: true, rename: {} } };
 let INK = '236,233,226';
 const hexRGB = h => { const m = /^#?([0-9a-f]{6})$/i.exec(String(h || '')); if (!m) return null; const n = parseInt(m[1], 16); return `${n >> 16},${n >> 8 & 255},${n & 255}`; };
-/* Ground: mowed turf by default, so the race reads in a lit room; black (or theme.background) for the night track.
-   ?bg=grass|black wins, then the B key's last choice on this screen, then page.theme.ground in the config. */
-const GROUNDS = ['grass', 'black'];
+/* Backgrounds, the same three as the phone view (phone.html) so the two read as one design: mowed turf (the default),
+   off-white paper and digital oil, plus black (or theme.background) for the night track. Each has its own ink and
+   its own lane colours, the same ones the phone uses, so an agent is the same colour on both screens.
+   ?bg= wins, then the last choice on this browser (shared with the phone view), then page.theme.ground in the config. */
+const GROUNDS = ['grass', 'paper', 'oil', 'black'];
+const LED = ['#FFB547', '#CFE8FF', '#6BFF8E', '#FF6B5A', '#5FE3FF', '#FFD36B', '#B48CFF', '#FF8FD0'];
+const THEMES = {
+  grass: { pal: ['#FFB547', '#CFE8FF', '#FFF1CC', '#FF6B5A', '#5FE3FF', '#FFD36B', '#D7C4FF', '#FF9FD6'], ink: '251,248,240', base: '#25602F', dim: 0.86, mute: 0.66, amber: '#FFC85C' },
+  paper: { pal: ['#C2410C', '#1D4ED8', '#15803D', '#B91C1C', '#0E7490', '#A16207', '#6D28D9', '#BE185D'], ink: '22,21,15', base: '#EEEAE0', dim: 0.7, mute: 0.52, amber: '#A35400' },
+  oil:   { pal: LED, ink: '236,233,226', base: '#1A1030', dim: 0.76, mute: 0.56, amber: '#FFB547' },
+  black: { pal: LED, ink: null, base: null, dim: 0.76, mute: 0.56, amber: '#FFB547' },
+};
 const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch { /* private mode */ } } };
-const groundParam = GROUNDS.includes((params.get('bg') || '').toLowerCase()) ? params.get('bg').toLowerCase() : null;
-const groundSaved = GROUNDS.includes(store.get('derby-ground')) ? store.get('derby-ground') : null;
+const groundName = v => { v = String(v || '').toLowerCase(); return v === 'offwhite' || v === 'off-white' ? 'paper' : GROUNDS.includes(v) ? v : null; };
+const groundParam = groundName(params.get('bg'));
+const groundSaved = store.get('derby-ground') === 'black' ? 'black' : groundName(store.get('derby-phone-bg')) || groundName(store.get('derby-ground'));
 if (groundParam || groundSaved) CFG.ground = groundParam || groundSaved;
-const GRASS_INK = '251,248,240';
+const theme = () => THEMES[CFG.ground] || THEMES.grass;
 const onGrass = () => CFG.ground === 'grass';
-// on turf the type and rails need more weight to read: the same steps, lifted
-const ink = a => `rgba(${onGrass() ? GRASS_INK : INK},${onGrass() ? Math.min(1, a * 1.5 + 0.08) : a})`;
+const lit = () => CFG.ground !== 'black';              // a lit ground: grass, paper or oil
+const themeInk = () => theme().ink || INK;
+const groundBase = () => theme().base || CFG.background;
+// on a lit ground the rails and ticks need more weight to read: the same steps, lifted
+const ink = a => `rgba(${themeInk()},${lit() ? Math.min(1, a * 1.5 + 0.08) : a})`;
+const inkA = a => `rgba(${themeInk()},${a})`;       // the phone's literal ink levels, for type
 if (STYLES.includes((params.get('style') || '').toLowerCase())) CFG.style = params.get('style').toLowerCase();
 if (params.get('palette')) CFG.palette = params.get('palette');
 if (params.get('crt') !== null && !isNaN(parseFloat(params.get('crt')))) CFG.crt = clamp(parseFloat(params.get('crt')), 0, 1);
@@ -119,7 +134,7 @@ function applyConfig(c) {
   if (!params.get('palette') && typeof c.palette === 'string') CFG.palette = c.palette;
   if (!params.get('crt') && typeof c.crtOverlay === 'number') CFG.crt = clamp(c.crtOverlay, 0, 1);
   const th = c.theme || {};
-  if (!groundParam && !groundSaved && GROUNDS.includes(String(th.ground || '').toLowerCase())) CFG.ground = String(th.ground).toLowerCase();
+  if (!groundParam && !groundSaved && groundName(th.ground)) CFG.ground = groundName(th.ground);
   if (hexRGB(th.background)) CFG.background = '#' + String(th.background).replace('#', '');
   if (hexRGB(th.ink)) { CFG.ink = th.ink; INK = hexRGB(th.ink); }
   if (Array.isArray(c.horses)) CFG.horses = c.horses.filter(k => SKINS[k]).slice(0, 8);
@@ -133,7 +148,7 @@ function applyConfig(c) {
   resize();
 }
 function paintGround() {
-  const bgc = onGrass() ? TURF_BASE : CFG.background;
+  const bgc = groundBase();
   try { document.body.style.background = bgc; cv.style.background = bgc; document.querySelector('meta[name="theme-color"]')?.setAttribute('content', bgc); } catch { /* fine */ }
 }
 const MIN_LANES = clamp(parseInt(params.get('lanes') || (isTV() ? '4' : '6'), 10) || 6, 1, 8);
@@ -797,15 +812,17 @@ function drawReflection(x, y, src = COMP) {
 }
 
 /* ---------- render styles: the horse built from light (see docs/STYLE.md) ---------- */
-const LED = ['#FFB547', '#CFE8FF', '#6BFF8E', '#FF6B5A', '#5FE3FF', '#FFD36B', '#B48CFF', '#FF8FD0'];
-// on turf, the lane hues that would vanish into the green (green itself, a deep violet) move to cream and lilac
-const LED_GRASS = ['#FFB547', '#CFE8FF', '#FFF1CC', '#FF6B5A', '#5FE3FF', '#FFD36B', '#D7C4FF', '#FF9FD6'];
 const PHOSPHOR = { amber: '#FFB547', green: '#7CFF9B', white: '#EAF2FF', ice: '#BFE3FF' };
+const idHash = s => { let h = 2166136261; for (const ch of s) h = Math.imul(h ^ ch.charCodeAt(0), 16777619); return h >>> 0; };
 function laneColor(h) {
   const p = String(CFG.palette || 'lanes').toLowerCase();
   if (PHOSPHOR[p]) return PHOSPHOR[p];
   if (hexRGB(p)) return '#' + p.replace('#', '');
-  return (onGrass() ? LED_GRASS : LED)[h.i % LED.length];
+  // the phone's rule: a live agent's colour comes from its id, so it is the same colour on the phone and here.
+  // Lanes without an agent (and the demo) go by lane number.
+  // the dots look is lit LEDs on a dark board, so on off-white it keeps the bright LED colours
+  const pal = CFG.style === 'dots' && CFG.ground === 'paper' ? LED : theme().pal;
+  return pal[(h.agentId ? idHash(String(h.agentId)) : h.i) % pal.length];
 }
 const RAMP = ' .:-=+*#%@';
 const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map(v => (v + 0.5) / 16);
@@ -890,7 +907,17 @@ function ledSprite(css, cell, heat = 0) {
     x.fillStyle = g; x.fillRect(0, 0, cell, cell); return c;
   });
 }
-function drawCells(h, g, pose, now, originX, groundY, base) {
+// An open lane's horse is a placeholder: an opaque, muted silhouette in the ground's own colours, never a see-through
+// one. It keeps the four tones of a real horse, so the far legs stay a separate, darker shape and it reads as a whole
+// horse on four legs. Shadow, body, light, highlight, mixed from the ground toward the ink.
+function ghostTones() {
+  const grass = onGrass(), from = grass ? [38, 100, 49] : (hexRGB(groundBase()) || '0,0,0').split(',').map(Number);
+  const to = themeInk().split(',').map(Number);
+  const ks = grass ? [0.19, 0.37, 0.42, 0.48] : CFG.ground === 'paper' ? [0.10, 0.21, 0.25, 0.30] : [0.12, 0.27, 0.31, 0.37];
+  return ks.map(k => `rgb(${from.map((v, j) => Math.round(v + (to[j] - v) * k)).join(',')})`);
+}
+const blendRGB = (a, b, t) => { const A = a.slice(4, -1).split(',').map(Number), B = b.slice(4, -1).split(',').map(Number); return `rgb(${A.map((v, j) => Math.round(v + (B[j] - v) * t)).join(',')})`; };
+function drawCells(h, g, pose, now, originX, groundY, base, ghost = 0) {
   const style = CFG.style, c = cellSize(style);
   const cols = Math.ceil(LW / c), rows = Math.ceil(LH / c), n = cols * rows;
   if (CA.length < n) { CA = new Uint8Array(n); CT = new Uint8Array(n); }
@@ -948,25 +975,28 @@ function drawCells(h, g, pose, now, originX, groundY, base) {
   // 4. state is light: a done horse thins out evenly inside a solid outline and twinkles slowly
   const w = h.w, sum = w.rest + w.work + w.sprint || 1, wr = w.rest / sum;
   // LEDs fill less of a cell, so their floor is higher. On turf a dim horse would go muddy, so it stays lighter and rests by thinning out.
-  const energy = onGrass() ? ((style === 'dots' ? 0.70 : 0.64) * w.rest + 0.84 * w.work + 1.0 * w.sprint) / sum
+  const energy = lit() ? ((style === 'dots' ? 0.70 : 0.64) * w.rest + 0.84 * w.work + 1.0 * w.sprint) / sum
     : ((style === 'dots' ? 0.52 : 0.40) * w.rest + 0.72 * w.work + 1.0 * w.sprint) / sum;
   const gx = dxA / c, gy = dyA / c;
   if (wr > 0.02) {
-    const density = 1 - 0.5 * ease(wr), tw = !reduced && wr > 0.6;
+    // the pixel look rests the way the phone view does, by going quieter as a whole (below), so it never thins out
+    const density = 1 - 0.5 * ease(wr), tw = !reduced && wr > 0.6, solid = ghost > 0.5 || style === 'pixels';
     for (let y = 1; y < rows - 1; y++) for (let x = 1; x < cols - 1; x++) {
       const i = y * cols + x;
       if (!CA[i] || !CA[i - cols] || !CA[i + cols] || !CA[i - 1] || !CA[i + 1]
         || !CA[i - cols - 1] || !CA[i - cols + 1] || !CA[i + cols - 1] || !CA[i + cols + 1]) continue;   // the outline stays whole
       if (wr > 0.5 && CT[i] === 1 && CA[i] === 2) CT[i] = 2;   // asleep, the horse is one quiet tone inside its outline
       const X = x + gx, Y = y + gy;
+      if (solid) continue;
       if (BAYER[(Y & 3) * 4 + (X & 3)] >= density) { CT[i] = 0; continue; }
       if (tw) { const hh = (Math.imul(X, 73856093) ^ Math.imul(Y, 19349663)) >>> 0; if (Math.sin(now * 0.9 + (hh % 1009) / 1009 * TAU) > 0.93 && CT[i] < 3) CT[i]++; }
     }
   }
   // 5. light the cells
-  const pal = tones(laneColor(h), Math.round(energy * 40) / 40, style === 'dots');
-  const heat = (0.25 * w.work + w.sprint) / sum;   // how hard the LEDs are driven: no core when done, a near-white core at full sprint
-  const refl = CFG.track.reflections && QUALITY < 2 && !onGrass(), RA = [0.28, 0.14];   // turf doesn't mirror
+  let pal = tones(laneColor(h), Math.round(energy * 40) / 40, style === 'dots');
+  if (ghost > 0) { const gp = ghostTones(), t = Math.round(ghost * 20) / 20; pal = pal.map((p, i) => blendRGB(p, gp[i], t)); }
+  const heat = ghost > 0.5 ? 0 : (0.25 * w.work + w.sprint) / sum;   // how hard the LEDs are driven: no core when done, a near-white core at full sprint
+  const refl = CFG.track.reflections && QUALITY < 2 && !lit(), RA = [0.28, 0.14];   // a lit ground doesn't mirror
   ctx.globalCompositeOperation = 'source-over';
   // 6. at full sprint a short trail peels off the tail and croup: it starts at the trailing edge of each row, steps back
   //    one cell at a time, thins and dims with distance, and is gone within 14 cells (about half a second)
@@ -989,13 +1019,18 @@ function drawCells(h, g, pose, now, originX, groundY, base) {
     }
   }
   if (style === 'pixels') {
-    for (let t = 1; t <= 4; t++) {
-      ctx.globalAlpha = base; ctx.fillStyle = pal[t - 1]; ctx.beginPath();
-      for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
-        if (CT[y * cols + x] !== t) continue;
-        const x0 = x; while (x + 1 < cols && CT[y * cols + x + 1] === t) x++;
-        ctx.rect(dxA + x0 * c, dyA + y * c, (x - x0 + 1) * c, c);
-      }
+    // the phone view's horse: one flat colour in square cells with a thin gap between them, the far legs a step
+    // toward the ground so all four legs read. A resting horse goes quieter as a whole, like the phone.
+    // An open lane's placeholder is the ground's own muted colours, opaque.
+    const col = laneColor(h), gnd = 'rgb(' + (hexRGB(groundBase()) || '0,0,0') + ')', gp = ghost > 0 ? ghostTones() : null;
+    let near = 'rgb(' + hexRGB(col) + ')', far = blendRGB(near, gnd, lit() ? 0.36 : 0.45);
+    if (gp) { const t = Math.round(ghost * 20) / 20; near = blendRGB(near, gp[1], t); far = blendRGB(far, gp[0], t); }
+    const rest = ghost > 0.5 ? 1 : lerp(1, 0.6, clamp(wr, 0, 1)), oilA = CFG.ground === 'oil' ? 0.8 + 0.2 * clamp(1 - wr, 0, 1) : 1;
+    const gap = c >= 3 ? Math.max(1, Math.round(c / 6)) : 0;
+    ctx.globalAlpha = base * Math.min(rest, ghost > 0.5 ? 1 : oilA);
+    for (const [col2, want] of [[far, 1], [near, 2]]) {
+      ctx.fillStyle = col2; ctx.beginPath();
+      for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) if (CA[y * cols + x] === want) ctx.rect(dxA + x * c, dyA + y * c, c - gap, c - gap);
       ctx.fill();
     }
     // the floor mirrors the hooves as whole cells, two rows deep
@@ -1022,9 +1057,10 @@ function drawCells(h, g, pose, now, originX, groundY, base) {
       ctx.globalCompositeOperation = 'source-over';
     }
     const sp = pal.map(p => ledSprite(p, c, heat));
-    if (onGrass()) {
-      // on turf the LEDs sit on a dark panel cut to the horse, like a sign board, so the gaps between dots stay dark
-      ctx.globalAlpha = base * 0.55; ctx.fillStyle = '#0B1A0E'; ctx.beginPath();
+    if (lit()) {
+      // on a lit ground the LEDs sit on a dark panel cut to the horse, like a sign board, so the gaps between dots stay dark
+      const paper = CFG.ground === 'paper';
+      ctx.globalAlpha = base * (paper ? 0.92 : 0.55) * (1 - ghost); ctx.fillStyle = paper ? '#16150F' : '#0B1A0E'; ctx.beginPath();
       for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) if (CA[y * cols + x]) ctx.rect(dxA + x * c, dyA + y * c, c, c);
       ctx.fill();
     }
@@ -1095,38 +1131,70 @@ function drawStyled(h, dx, dy, info, base) {
   ctx.globalAlpha = base; ctx.drawImage(SOUT, dx, dy);
 }
 
-/* ---------- the ground: mowed turf ----------
-   Two greens in bands, one band per lane, the way a groundskeeper mows a course. A faint grain is set on the same
-   screen lattice as the horses' cells, so the ground is made of the same squares and never shimmers. Built once per
-   layout and drawn as one image each frame. */
-const TURF_BASE = '#25602F';
-const TURF = document.createElement('canvas'), tctx = TURF.getContext('2d');
-TURF._key = '';
-function buildTurf() {
+/* ---------- the ground: the phone view's backgrounds ----------
+   The same three as phone.html, drawn the same way: mowed turf in two greens, a band every 12 cells; off-white paper
+   with a faint weave; or digital oil, a few soft colour blobs drifting and blending, drawn into coarse dithered cells.
+   Each sits on the horses' own cell lattice, so the ground is made of the same squares and never shimmers. The still
+   ones are built once per layout; oil redraws about 20 times a second. */
+const GROUND = document.createElement('canvas'), grctx = GROUND.getContext('2d');
+GROUND._key = ''; let groundImg = null, oilLast = -1;
+const OIL_INKS = [[255, 132, 54], [236, 66, 132], [118, 84, 255], [34, 156, 222], [255, 190, 70], [40, 196, 150]];
+const OIL_BLOBS = OIL_INKS.map((c, i) => ({ c, a: 0.05 + 0.017 * i, b: 0.043 + 0.013 * ((i * 3) % 5), p: i * 1.7, q: i * 2.3 }));
+const OIL_T0 = clock() - 40 * Math.random();
+const cellNoise = (x, y) => { let h = (x * 374761393 + y * 668265263) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) & 255) / 255; };
+function groundCell() {
   const c = isCells(CFG.style) ? cellSize(CFG.style) : Math.max(3, Math.round(S / 12));
-  const key = [W, H, c, N, L.top, L.lh].join('|');
-  if (TURF._key === key) return;
-  TURF._key = key;
-  const cols = Math.ceil(W / c), rows = Math.ceil(H / c);
-  const g = document.createElement('canvas'); g.width = cols; g.height = rows;
-  const gx = g.getContext('2d'), img = gx.createImageData(cols, rows), d = img.data;
-  const lane = y => { const k = Math.floor((y * c + c / 2 - L.top) / L.lh); return k >= 0 && k < N ? k : -1; };
-  for (let y = 0; y < rows; y++) {
-    const k = lane(y), light = k >= 0 && k % 2 === 0;
-    for (let x = 0; x < cols; x++) {
-      let h = (x * 374761393 + y * 668265263) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177);
-      const n = (((h ^ (h >>> 16)) & 255) / 255 - 0.5), th = BAYER[(y & 3) * 4 + (x & 3)] - 0.5, v = 5 * n + 3 * th;
-      const o = (y * cols + x) * 4;
-      if (light) { d[o] = 41 + v * 0.6; d[o + 1] = 106 + v; d[o + 2] = 52 + v * 0.6; }
-      else { d[o] = 35 + v * 0.6; d[o + 1] = 94 + v; d[o + 2] = 46 + v * 0.6; }
-      d[o + 3] = 255;
-    }
-  }
-  gx.putImageData(img, 0, 0);
-  TURF.width = W; TURF.height = H; tctx.imageSmoothingEnabled = false;
-  tctx.drawImage(g, 0, 0, cols * c, rows * c);
+  return CFG.ground === 'oil' ? c * (QUALITY >= 1 ? 2 : 1) : c;   // oil moves, so on a slow machine its cells are coarser
 }
-function drawTurf() { buildTurf(); ctx.drawImage(TURF, 0, 0); }
+function sizeGround() {
+  const c = groundCell(), key = [W, H, c, CFG.ground].join('|');
+  if (GROUND._key === key) return false;
+  GROUND._key = key; GROUND._c = c;
+  GROUND.width = Math.ceil(W / c); GROUND.height = Math.ceil(H / c);
+  groundImg = grctx.createImageData(GROUND.width, GROUND.height); oilLast = -1;
+  return true;
+}
+function stillGround() {
+  const cols = GROUND.width, rows = GROUND.height, d = groundImg.data, paper = CFG.ground === 'paper';
+  for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+    const k = (y * cols + x) * 4, n = cellNoise(x, y) - 0.5, th = BAYER[(y & 3) * 4 + (x & 3)] - 0.5;
+    if (paper) { const v = 6 * n + 3 * th; d[k] = 238 + v; d[k + 1] = 234 + v; d[k + 2] = 224 + v; }
+    else { const stripe = Math.floor(y / 12) % 2, v = 7 * n + 4 * th;      // mowed turf: two greens in bands
+      if (stripe) { d[k] = 41 + v * 0.6; d[k + 1] = 107 + v; d[k + 2] = 52 + v * 0.6; } else { d[k] = 35 + v * 0.6; d[k + 1] = 94 + v; d[k + 2] = 46 + v * 0.6; } }
+    d[k + 3] = 255;
+  }
+  grctx.putImageData(groundImg, 0, 0);
+}
+function oilGround(t) {
+  const Wc = GROUND.width, Hc = GROUND.height, d = groundImg.data, asp = Hc / Wc;
+  const P = OIL_BLOBS.map(o => [0.5 + 0.55 * Math.sin(t * o.a + o.p), asp * (0.5 + 0.55 * Math.cos(t * o.b + o.q))]);
+  for (let y = 0; y < Hc; y++) for (let x = 0; x < Wc; x++) {
+    const u0 = x / Wc, v0 = y / Wc;
+    const u = u0 + 0.07 * Math.sin(v0 * 6.0 + t * 0.21) + 0.03 * Math.sin(v0 * 13 - t * 0.13);
+    const v = v0 + 0.07 * Math.cos(u0 * 5.0 - t * 0.17);
+    let r = 0, gg = 0, b = 0, sw = 0;
+    for (let i = 0; i < P.length; i++) {
+      const dx = u - P[i][0], dy = v - P[i][1], w = Math.exp(-(dx * dx + dy * dy) * 7);
+      r += OIL_BLOBS[i].c[0] * w; gg += OIL_BLOBS[i].c[1] * w; b += OIL_BLOBS[i].c[2] * w; sw += w;
+    }
+    const glow = Math.min(1, 0.35 + sw * 0.9), th = (BAYER[(y & 3) * 4 + (x & 3)] - 0.5) * 22, k = (y * Wc + x) * 4, L = 28;
+    d[k] = Math.max(0, Math.min(255, Math.round((r / sw * glow * 0.82 + th) / L) * L));
+    d[k + 1] = Math.max(0, Math.min(255, Math.round((gg / sw * glow * 0.82 + th) / L) * L));
+    d[k + 2] = Math.max(0, Math.min(255, Math.round((b / sw * glow * 0.82 + th) / L) * L));
+    d[k + 3] = 255;
+  }
+  grctx.putImageData(groundImg, 0, 0);
+}
+function drawGround(now) {
+  if (!lit()) { ctx.fillStyle = CFG.background; ctx.fillRect(0, 0, W, H); return; }
+  const fresh = sizeGround();
+  if (CFG.ground === 'oil') {
+    if (reduced) { if (oilLast < 0) { oilLast = 0; oilGround(37); } }
+    else if (fresh || now - oilLast >= 0.05) { oilLast = now; oilGround(now - OIL_T0); }
+  } else if (fresh) stillGround();
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(GROUND, 0, 0, GROUND.width * GROUND._c, GROUND.height * GROUND._c);
+}
 
 /* ---------- retro CRT layer over everything ---------- */
 function buildCRT() {
@@ -1155,15 +1223,16 @@ function drawCRT(now) {
   if (k <= 0) return;
   if (SCAN._key !== CFG.style + '|' + QUALITY) buildCRT();
   ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalCompositeOperation = 'source-over';
-  // on turf the lattice and the vignette are lighter: over a lit ground they read as a mesh, not as texture
-  const g = onGrass() ? 0.4 : 1;
-  ctx.globalAlpha = Math.min(1, k * 1.2 * g); ctx.fillStyle = ctx.createPattern(SCAN, 'repeat'); ctx.fillRect(0, 0, W, H);
-  ctx.globalAlpha = Math.min(1, k * 2.2 * (onGrass() ? 0.5 : 1)); ctx.drawImage(VIG, 0, 0, W, H);
-  if (!reduced) {
+  // over a lit ground the lattice and the vignette are lighter, as faint as the phone view's grid lines,
+  // so they read as cells, not as a mesh
+  const g = { grass: [0.4, 0.5, 1], paper: [0.25, 0.25, 0.3], oil: [1.4, 0.7, 1], black: [1, 1, 1] }[CFG.ground] || [1, 1, 1];
+  ctx.globalAlpha = Math.min(1, k * 1.2 * g[0]); ctx.fillStyle = ctx.createPattern(SCAN, 'repeat'); ctx.fillRect(0, 0, W, H);
+  ctx.globalAlpha = Math.min(1, k * 2.2 * g[1]); ctx.drawImage(VIG, 0, 0, W, H);
+  if (!reduced && g[2] > 0) {
     // a slow band rolls down the screen. It lifts only what is already lit (colour dodge), so black stays black.
     const bandH = H * 0.22, by = ((now * 0.06) % 1.3 - 0.15) * H;
     const bg = ctx.createLinearGradient(0, by, 0, by + bandH);
-    const bv = Math.round(255 * 0.5 * k);
+    const bv = Math.round(255 * 0.5 * k * g[2]);
     bg.addColorStop(0, 'rgb(0,0,0)'); bg.addColorStop(0.5, `rgb(${bv},${bv},${bv})`); bg.addColorStop(1, 'rgb(0,0,0)');
     ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'color-dodge'; ctx.fillStyle = bg; ctx.fillRect(0, by, W, bandH);
     ctx.globalCompositeOperation = 'source-over';
@@ -1175,6 +1244,7 @@ function drawCRT(now) {
 
 /* ---------- labels ---------- */
 const MONO = '"Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace';
+const SANS = '"Helvetica Neue", Helvetica, Arial, system-ui, sans-serif';   // the phone view's type
 function fmtSince(s) {
   s = Math.max(0, s | 0);
   if (s < 60) return s + 's';
@@ -1189,51 +1259,43 @@ function fitText(t, max) {
   if (sp > t.length - 9 && sp > 3) t = t.slice(0, sp);
   return t.trimEnd() + '…';
 }
+// the phone view's row, set beside each lane: the name in semibold, the task under it in a dimmer ink, then the state
+// word and how long it has held. A resting agent's name and state go to the dimmer ink, a wait on you goes amber.
 function drawLabel(h, laneTop, groundY, now, drift) {
-  const fs = L.fs, d = dpr;
+  const fs = L.fs, th = theme();
   const hl = h.i === selected && now < selectedUntil;
   const x0 = L.gut + drift[0];
   const side = L.wide || L.tv;
   let y = side ? groundY - L.lh * 0.50 + drift[1] : laneTop + fs * 1.6 + drift[1];
   ctx.textBaseline = 'alphabetic';
-  ctx.font = `400 ${fs * 0.92}px ${MONO}`;
-  ctx.fillStyle = hl ? ink(0.9) : ink(0.30);
-  ctx.fillText(String(h.i + 1).padStart(2, '0'), x0, y);
-  const nx = x0 + fs * 2.4;
-  ctx.fillStyle = CFG.style === 'classic' ? SKINS[h.skin].swatch : laneColor(h); ctx.globalAlpha = 0.9;
-  ctx.fillRect(nx, y - fs * 0.62, fs * 0.5, fs * 0.5); ctx.globalAlpha = 1;
-  ctx.font = `500 ${fs}px ${MONO}`;
-  ctx.fillStyle = hl ? ink(1) : ink(0.72);
-  const maxW = side ? L.trackX0 - L.gut * (L.tv ? 0.5 : 1) - (nx + fs * 0.95) - fs : Infinity;
   // a lane that is emptying keeps its agent's name until the horse has faded
   const leaving = h.open && h.vis > 0.5 && h.prev;
   const name = leaving ? h.prev.name : h.name, task = leaving ? h.prev.task : h.task;
-  ctx.fillText(fitText(name.toUpperCase(), maxW), nx + fs * 0.95, y);
+  const quiet = h.open || h.state === 'rest', wait = !h.open && h.state === 'rest' && /waiting on you/i.test(h.note || '');
+  const maxW = side ? L.trackX0 - L.gut * (L.tv ? 0.5 : 1) - x0 - fs : Infinity;
+  const nfs = fs * 1.14;
+  ctx.font = `600 ${nfs}px ${SANS}`;
+  ctx.fillStyle = hl ? inkA(1) : quiet ? inkA(th.dim) : inkA(1);
+  ctx.fillText(fitText(name, maxW), x0, y);
   if (side) {
-    y += fs * 1.45;
-    ctx.font = `400 ${fs * 0.88}px ${MONO}`; ctx.fillStyle = ink(0.36);
-    if (CFG.labels.showTask) ctx.fillText(fitText(task, maxW), nx + fs * 0.95, y);
-    y += fs * 1.75;
+    y += fs * 1.42;
+    ctx.font = `400 ${fs * 0.88}px ${SANS}`; ctx.fillStyle = inkA(th.dim);
+    if (CFG.labels.showTask) ctx.fillText(fitText(task, maxW), x0, y);
+    y += fs * 1.7;
   } else {
-    ctx.font = `400 ${fs * 0.88}px ${MONO}`; ctx.fillStyle = ink(0.36);
-    const tx = nx + fs * 0.95 + ctx.measureText(h.name.toUpperCase() + '  ').width * (fs / (fs * 0.88));
-    if (CFG.labels.showTask && (!L.tv || tx + ctx.measureText(h.task).width < W - L.gut)) ctx.fillText(h.task, tx, y);
+    const tx = x0 + ctx.measureText(name + '   ').width;
+    ctx.font = `400 ${fs * 0.88}px ${SANS}`; ctx.fillStyle = inkA(th.dim);
+    if (CFG.labels.showTask && (!L.tv || tx + ctx.measureText(task).width < W - L.gut)) ctx.fillText(task, tx, y);
     y += fs * 1.5;
   }
-  const lvl = h.state === 'rest' ? 1 : h.state === 'work' ? 2 : 3;
-  const sq = fs * 0.36, gap = fs * 0.2;
-  for (let k = 0; k < 3; k++) {
-    ctx.fillStyle = k < lvl ? (lvl === 3 ? ink(0.95) : ink(0.7)) : ink(0.14);
-    ctx.fillRect(nx + fs * 0.95 + k * (sq + gap), y - sq * 1.15, sq, sq);
-  }
-  ctx.font = `500 ${fs * 0.88}px ${MONO}`;
-  ctx.fillStyle = h.state === 'sprint' ? ink(0.92) : ink(0.55);
-  const sx = nx + fs * 0.95 + 3 * (sq + gap) + fs * 0.4;
-  const word = h.open ? 'Open' : (h.note && h.state === 'rest') ? h.note.charAt(0).toUpperCase() + h.note.slice(1) : STATE_LABEL[h.state];
-  ctx.fillText(word, sx, y);
+  const word = h.open ? 'Open lane' : (h.note && h.state === 'rest') ? h.note.charAt(0).toUpperCase() + h.note.slice(1) : STATE_LABEL[h.state];
+  ctx.font = `600 ${fs}px ${SANS}`;
+  ctx.fillStyle = wait ? th.amber : quiet ? inkA(th.dim) : inkA(1);
+  ctx.fillText(word, x0, y);
   if (!h.open && CFG.labels.showTimer) {
-    ctx.font = `400 ${fs * 0.88}px ${MONO}`; ctx.fillStyle = ink(0.30);
-    const tm = fmtSince(clock() - h.since), tx = sx + ctx.measureText(word + '  ').width;
+    const tx = x0 + ctx.measureText(word + '  ').width;
+    ctx.font = `400 ${fs * 0.88}px ${SANS}`; ctx.fillStyle = inkA(th.mute);
+    const tm = (h.state === 'rest' ? 'for ' : '') + fmtSince(clock() - h.since);
     // on the tv layout the timer gives way before it crowds the track
     if (!side || tx + ctx.measureText(tm).width < L.trackX0 - L.gut * (L.tv ? 0.5 : 1) - fs * 1.2) ctx.fillText(tm, tx, y);
   }
@@ -1284,7 +1346,14 @@ function frame() {
   const dt = Math.min(0.25, Math.max(0, now - last)); last = now;   // real elapsed time: a slow frame never slows the horses
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
-  if (onGrass()) drawTurf(); else { ctx.fillStyle = CFG.background; ctx.fillRect(0, 0, W, H); }
+  drawGround(now);
+  // on oil the phone view sets its type on dark glass; here the label column and the footer get the same glass
+  if (CFG.ground === 'oil') {
+    ctx.fillStyle = 'rgba(8,8,10,0.58)';
+    if (L.wide || L.tv) ctx.fillRect(0, 0, L.trackX0 - L.gut * 0.5, H);
+    else for (let i = 0; i < N; i++) ctx.fillRect(0, L.top + L.lh * i, W, L.fs * 3.6);
+    ctx.fillRect(L.wide || L.tv ? L.trackX0 - L.gut * 0.5 : 0, H - L.footH, W, L.footH);
+  }
   const drift = [Math.sin(now / 97) * 3 * dpr, Math.cos(now / 131) * 2 * dpr];
 
   if (L.wide || L.tv) { ctx.fillStyle = ink(0.06); ctx.fillRect(L.trackX0 - L.gut * 0.5, L.top, Math.max(1, dpr), H - L.footH - L.top); }
@@ -1315,8 +1384,17 @@ function frame() {
       h.gF = mf; h.gShown = h.groundOff - (cyc - MUY.ph[mf]) * MUY.step * S;
     } else { h.gF = -1; h.gShown = h.groundOff; }
 
-    // rail and posts
-    if (CFG.track.lines) {
+    // the track: for the cell looks it is the phone view's, a row of ink cells every fourth cell, lying on the ground
+    // and carried by it, so a planted hoof stays on its patch. The other looks keep a rail and posts.
+    if (CFG.track.lines && cells) {
+      const c = cell, gap = c >= 3 ? Math.max(1, Math.round(c / 6)) : 0, off = Math.floor(h.gShown / c);
+      ctx.globalAlpha = 0.4; ctx.fillStyle = inkA(1); ctx.beginPath();
+      for (let k = Math.ceil((L.trackX0 / c + off) / 4) * 4; ; k += 4) {
+        const x = (k - off) * c; if (x > L.trackX1) break;
+        if (x >= L.trackX0) ctx.rect(x, Math.round(groundY), c - gap, c - gap);
+      }
+      ctx.fill(); ctx.globalAlpha = 1;
+    } else if (CFG.track.lines) {
     ctx.fillStyle = ink(0.10);
     ctx.fillRect(L.trackX0, Math.round(groundY), L.trackX1 - L.trackX0, Math.max(1, dpr));
     const sp = 2 * S, k0 = Math.ceil(h.gShown / sp);
@@ -1329,11 +1407,13 @@ function frame() {
     }
     }
 
-    // an open lane keeps only a faint ghost, so it never reads as a real agent; arriving and leaving fade between the two
-    const base = lerp(0.12, 1, easeIO(h.vis));
+    // an open lane shows a muted placeholder horse in the ground's own colours, so it never reads as a real agent;
+    // arriving and leaving blend between the two. The cell looks draw it opaque; the others fade it.
+    const vis = easeIO(h.vis), ghost = 1 - vis;
+    const base = cells ? 1 : lerp(lit() ? 0.34 : 0.22, 1, vis);
     let info = null;
     if (cells) {
-      info = drawCells(h, g, pose, now, originX, groundY, base);
+      info = drawCells(h, g, pose, now, originX, groundY, base, ghost);
     } else {
       renderHorse(h, g, pose, now);
       const dx = Math.round(originX - OX), dy = Math.round(groundY - OY);
@@ -1399,21 +1479,24 @@ function frame() {
 
   // footer
   const fy = (L.wide || L.tv ? H - L.gut : H - L.footH * 0.42) + drift[1];
-  ctx.font = `500 ${L.fs * 0.82}px ${MONO}`; ctx.fillStyle = ink(0.55);
+  // the phone view's header: the name in small bold capitals, spaced out, then the counts in the dimmer ink
+  const th = theme(), spaced = t => t.toUpperCase().split('').join(' ');
+  ctx.font = `700 ${L.fs * 0.8}px ${SANS}`; ctx.fillStyle = inkA(1);
   ctx.textBaseline = 'alphabetic';
-  const title = L.tv ? CFG.title : CFG.title.split('').join(' ');
+  const title = spaced(CFG.title);
   ctx.fillText(title, L.gut + drift[0], fy);
   let fx = L.gut + drift[0] + ctx.measureText(title).width + L.fs * 2;
-  ctx.font = `400 ${L.fs * 0.82}px ${MONO}`; ctx.fillStyle = ink(0.32);
-  const tally = `${counts.sprint} full sprint   ${counts.work} working   ${counts.rest} done`;
+  ctx.font = `400 ${L.fs * 0.88}px ${SANS}`; ctx.fillStyle = inkA(th.dim);
+  const tally = `${counts.sprint} sprinting   ${counts.work} working   ${counts.rest} done`;
   const summary = L.tv
-    ? (live ? `${liveCount} live   ${counts.sprint} sprint  ${counts.work} working  ${counts.rest} done` : `DEMO, NOT REAL AGENTS`)
+    ? (live ? `${liveCount} live   ${counts.sprint} sprinting  ${counts.work} working  ${counts.rest} done` : `DEMO, NOT REAL AGENTS`)
     : live
     ? `${liveCount} live agent${liveCount === 1 ? '' : 's'}   ·   ${tally}${liveSource ? '   ·   ' + liveSource : ''}${cloudMsg ? '   ·   ' + cloudMsg : ''}`
     : `DEMO, NOT REAL AGENTS   ·   ${tally}${demo ? '' : '   ·   held'}${cloudMsg ? '   ·   ' + cloudMsg : ''}`;
+  if (!live) ctx.fillStyle = th.amber;   // the phone view's demo banner is amber too
   if (fx + ctx.measureText(summary).width < W - L.gut - L.fs * 8) ctx.fillText(summary, fx, fy);
   const time = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  ctx.textAlign = 'right'; ctx.fillStyle = ink(0.45);
+  ctx.textAlign = 'right'; ctx.fillStyle = inkA(th.mute);
   ctx.fillText(now < hintUntil ? 'H  controls' : time, W - L.gut + drift[0], fy);
   ctx.textAlign = 'left';
   drawCRT(now);
@@ -1455,7 +1538,11 @@ addEventListener('keydown', e => {
   if (k === 'd') { demo = !demo; if (demo) horses.forEach(h => { h.hold = 0; }); return; }
   if (k === 'f') { toggleFull(); return; }
   if (k === 'v') { CFG.style = LOOKS[(LOOKS.indexOf(CFG.style) + 1) % LOOKS.length]; SPRITES.clear(); return; }
-  if (k === 'b') { CFG.ground = onGrass() ? 'black' : 'grass'; store.set('derby-ground', CFG.ground); SPRITES.clear(); TURF._key = ''; buildCRT(); paintGround(); return; }
+  if (k === 'b') {   // the same backgrounds as the phone view, in the same order, then black; the choice is shared with it
+    CFG.ground = GROUNDS[(GROUNDS.indexOf(CFG.ground) + 1) % GROUNDS.length];
+    if (CFG.ground === 'black') store.set('derby-ground', 'black'); else { store.set('derby-phone-bg', CFG.ground); store.set('derby-ground', ''); }
+    SPRITES.clear(); GROUND._key = ''; buildCRT(); paintGround(); return;
+  }
   if (k === 'c') { cloudAsk(); return; }
   if (k === 'h' || k === '?') { helpEl.hidden = !helpEl.hidden; return; }
   if (k === 'escape') helpEl.hidden = true;

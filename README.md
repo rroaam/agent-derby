@@ -121,7 +121,7 @@ curl -s -H 'X-Derby: 1' -d '{"agent":"my-bot","name":"My Bot","task":"ops","stat
 
 - **Live wallpaper (macOS):** add http://127.0.0.1:4777/ as a website in [Plash](https://sindresorhus.com/plash).
 - **Screensaver (macOS):** set the URL in [WebViewScreenSaver](https://github.com/liquidx/webviewscreensaver).
-- **Any browser:** open the page and press F for fullscreen. B switches between grass and black. H shows the controls.
+- **Any browser:** open the page and press F for fullscreen. B steps through the backgrounds: grass, off-white, oil, black. H shows the controls.
 
 ### Old screens: tube TVs, old iMacs, 4:3 monitors
 
@@ -154,7 +154,7 @@ Everything lives in `derby.config.json`. Every key is optional.
 | `page.palette` | `"lanes"` | `lanes` (a color per lane), `amber`, `green`, `white`, `ice`, or one 6-digit hex color. |
 | `page.crtOverlay` | `0.15` | CRT layer strength, 0 (off) to 1. Defaults to 0.25 on the 4:3 layout. |
 | `page.title` | `"AGENT DERBY"` | Text in the footer. |
-| `page.theme.ground` | `"grass"` | `grass` (mowed turf, cream type) or `black` (the night track). The B key switches it on that screen, and `?bg=black` in the address wins over both. |
+| `page.theme.ground` | `"grass"` | `grass` (mowed turf), `paper` (off-white), `oil` (moving digital oil) or `black` (the night track). The first three are the phone view's backgrounds. The B key switches it on that screen, and `?bg=` in the address wins over both. |
 | `page.theme.background` | `"#000000"` | Background color on the `black` ground (6-digit hex). |
 | `page.theme.ink` | `"#ECE9E2"` | Text and track color on the `black` ground (6-digit hex). |
 | `page.horses` | all 8 | Textures for the `classic` look, lane by lane, repeating if shorter: `chrome`, `thermal`, `type`, `dots`, `glass`, `leopard`, `cobalt`, `glitter`. |
@@ -171,12 +171,14 @@ The page reads the `page` section from the bridge at `/config` when it loads, so
 
 The horses are drawn in one of two looks. Press V on the page to switch, or pick one in settings:
 
-- **pixels** (the default): a sprite on a fixed grid of square cells, in four tones of the lane color, lit from the top left.
+- **pixels** (the default): the phone view's horse, one flat lane color in square cells with a thin gap between them, the far legs a step darker so all four legs read.
 - **dots**: the same grid as an LED matrix, round points with a hot core and black between them.
 
 Three older looks (`dither`, `ascii`, `classic`) are not up to `docs/STYLE.md` yet. They are off the V key and settings, and still open with `?style=` for anyone working on them.
 
-The state shows in the light itself. A done horse stands dim, thinned to an even lattice inside a solid outline, with a slow twinkle. A working horse is solid and steady. A horse at full sprint is brightest and sheds a short trail of points off its tail. A soft screen layer (a fine grid locked to the cells, a vignette, a slow rolling band and a faint flicker) sits over everything at about 15%, a bit heavier on the 4:3 layout.
+The big screen and the phone view share one design: the same backgrounds, the same Helvetica type, the same horse, and the same color for each agent (picked from the agent's id), so an agent looks the same on both. An open lane shows a solid, muted horse in the ground's own colors, so it reads as empty but still has four legs.
+
+The state shows in the light itself. A done horse stands quieter, at about 60%, like on the phone (the dots look thins it to an even lattice with a slow twinkle). A working horse is solid and steady. A horse at full sprint is brightest and sheds a short trail of points off its tail. A soft screen layer (a fine grid locked to the cells, a vignette, a slow rolling band and a faint flicker) sits over everything at about 15%, a bit heavier on the 4:3 layout.
 
 The gallop is traced from Eadweard Muybridge's 1878 photographs *The Horse in Motion* (Sallie Gardner at a gallop, Palo Alto, 19 June 1878). The scan used is the Library of Congress copy on Wikimedia Commons, which is in the public domain. Each of the 11 gallop frames was cut out, the rider removed, and the outline stored inside the page as plain shape data, so every look is drawn from Muybridge's horse. On the pixel grid a small ear is added by code, because the photographs show the ears laid flat. The trot and the resting horse are still drawn by code. Credit: Eadweard Muybridge, *The Horse in Motion*, 1878.
 
@@ -186,7 +188,7 @@ If the page runs slowly (a Raspberry Pi, a very large screen), it drops the bloo
 
 ## Address options
 
-`?layout=4x3|wide|auto`, `?bg=grass|black`, `?style=dots|dither|ascii|pixels|classic`, `?palette=amber`, `?crt=0.3`, `?lanes=1-8` (minimum lanes), `?demo=0` (freeze the demo), `?live=1` (poll a bridge when served over https).
+`?layout=4x3|wide|auto`, `?bg=grass|paper|oil|black`, `?style=dots|dither|ascii|pixels|classic`, `?palette=amber`, `?crt=0.3`, `?lanes=1-8` (minimum lanes), `?demo=0` (freeze the demo), `?live=1` (poll a bridge when served over https).
 
 ## Privacy
 
