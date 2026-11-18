@@ -9,7 +9,7 @@ Agent Derby is a screensaver page (`index.html`, one file, Canvas 2D, no build s
 - No drop shadows. No copied artwork: references set direction only. The gallop plays silhouettes traced from Muybridge's 1878 photographs (public domain, credited in the README); the trot and stand are drawn by code.
 - Keep `index.html` a single self-contained file that works from `file://`, from the bridge, and inside Plash or WebViewScreenSaver.
 - Performance budget: 60 fps at 5120x1440 on a Mac mini, and a Raspberry Pi 4 at 1024x768 must stay smooth (degrade, never stutter). Keep the frame-time watchdog working.
-- Keep these working: `?layout=`, `?style=`, `?palette=`, `?crt=`, `?lanes=`, `?demo=0`, the V/D/F/C/H keys, and the `page` settings read from the bridge's `/config`.
+- Keep these working: `?layout=`, `?style=`, `?palette=`, `?crt=`, `?lanes=`, `?demo=0`, `?bg=` (grass or dark, shared with the phone page), the V/B/D/F/C/H keys, and the `page` settings read from the bridge's `/config`.
 
 ## Definition of done (every visual change)
 1. Run the QA loop: `npm run qa` (first time only: `npm install`, then ask the owner before `npx playwright install chromium`, a ~150 MB local browser download).

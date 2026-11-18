@@ -18,8 +18,10 @@ The horse is built from light. A precise grid of light points sampled from a mov
 - Every point sits on the grid. Motion moves the silhouette under the grid; the grid itself never moves.
 
 ## Color
-- Black ground (`#000`). Type in warm off-white at modest opacity.
-- One hue per lane, spaced to tell apart at a glance: amber `#FFB547`, ice `#CFE8FF`, green `#6BFF8E`, coral `#FF6B5A`, cyan `#5FE3FF`, gold `#FFD36B`, violet `#B48CFF`, pink `#FF8FD0`. A single phosphor palette (amber, green, white, ice) or one hex is an option.
+- Two grounds, shared with the phone page (`?bg=`, the B key, or the picker in the H panel):
+  - **Grass (default):** mowed turf `#25602F` in two-green bands twelve cells deep, set on the horse lattice, as on `phone.html`. Type in cream `#FBF8F0`, its quiet tones lifted so they still read on turf. A done horse fades toward the turf, not toward black; LEDs sit on a panel of their horse's shadow tone.
+  - **Dark:** black ground (`#000`, or `page.theme.background`). Type in warm off-white at modest opacity.
+- One hue per lane, spaced to tell apart at a glance: amber `#FFB547`, ice `#CFE8FF`, green `#6BFF8E`, coral `#FF6B5A`, cyan `#5FE3FF`, gold `#FFD36B`, violet `#B48CFF`, pink `#FF8FD0`. On grass, green, violet and pink become cream `#FFF1CC`, lilac `#D7C4FF` and rose `#FF9FD6` so no lane sinks into the turf. A single phosphor palette (amber, green, white, ice) or one hex is an option.
 - Tones within a horse are steps of the same hue, never a second hue.
 
 ## State is light
